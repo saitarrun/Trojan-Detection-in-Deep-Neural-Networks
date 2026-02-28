@@ -25,56 +25,79 @@ if not os.path.exists(model_dir):
     st.stop()
     
 st.sidebar.header("Scan Configuration")
-selected_model_file = st.sidebar.selectbox("Select Model to Audit", model_files)
+
+upload_option = st.sidebar.radio("Model Source", ["Local Vault", "Upload External Model"])
+
+if upload_option == "Local Vault":
+    model_files = [f for f in os.listdir(model_dir) if f.endswith(".pth")]
+    selected_model_file = st.sidebar.selectbox("Select Model to Audit", model_files)
+    model_path = os.path.join(model_dir, selected_model_file)
+    uploaded_file = None
+else:
+    uploaded_file = st.sidebar.file_uploader("Upload PyTorch Model (.pth)", type=["pth", "pt"])
+    selected_model_file = uploaded_file.name if uploaded_file else "external_model.pth"
+    model_path = None
+    if uploaded_file is None:
+        st.sidebar.info("Waiting for model upload...")
+
 trigger_type = st.sidebar.selectbox("Expected Trigger Type", ["checkerboard", "square", "blending", "clean_label", "dynamic"])
 target_class = st.sidebar.number_input("Target Class to Audit", min_value=0, max_value=9, value=0)
 
-model_path = os.path.join(model_dir, selected_model_file)
-
 if st.sidebar.button("🚀 Execute Enterprise Audit (via API)"):
-    with st.spinner("Connecting to FastAPI Scanning Engine..."):
-        try:
-            # Check if API is alive
-            requests.get(f"{FASTAPI_URL}/health")
-            
-            with open(model_path, "rb") as f:
-                files = {"model_file": (selected_model_file, f, "application/octet-stream")}
+    if upload_option == "Upload External Model" and uploaded_file is None:
+        st.sidebar.error("❌ Please upload a .pth file first!")
+    else:
+        with st.spinner("Connecting to FastAPI Scanning Engine..."):
+            try:
+                # Check if API is alive
+                requests.get(f"{FASTAPI_URL}/health")
+                
+                # Prepare the files payload
+                if uploaded_file is not None:
+                    # Send bytes from the Streamlit UploadedFile directly to the API
+                    files = {"model_file": (selected_model_file, uploaded_file.getvalue(), "application/octet-stream")}
+                else:
+                    # Read bytes from local disk to send to API
+                    with open(model_path, "rb") as f:
+                        file_bytes = f.read()
+                    files = {"model_file": (selected_model_file, file_bytes, "application/octet-stream")}
+                    
                 data = {"target_class": target_class, "trigger_type": trigger_type}
                 
                 start_time = time.time()
                 response = requests.post(f"{FASTAPI_URL}/api/v1/scan-model", files=files, data=data)
                 end_time = time.time()
                 
-            if response.status_code == 200:
-                result = response.json()
-                
-                st.subheader("Automated Scan Report")
-                st.write(f"**Scan Duration:** {end_time - start_time:.2f} seconds")
-                
-                # Display Fusion Score
-                score = result["fusion_score"]
-                level = result["risk_level"]
-                
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Unified Fusion Risk Score", f"{score * 100:.1f}%")
-                
-                if "CRITICAL" in level:
-                    st.error(f"🚨 {level}")
-                    st.progress(score)
-                elif "WARNING" in level:
-                    st.warning(f"⚠️ {level}")
-                    st.progress(score)
-                else:
-                    st.success(f"✅ {level}")
-                    st.progress(score)
+                if response.status_code == 200:
+                    result = response.json()
                     
-                with st.expander("View Raw Scanner Metrics"):
-                    st.json(result["details"])
-            else:
-                st.error(f"API Error: {response.text}")
+                    st.subheader("Automated Scan Report")
+                    st.write(f"**Scan Duration:** {end_time - start_time:.2f} seconds")
+                    
+                    # Display Fusion Score
+                    score = result["fusion_score"]
+                    level = result["risk_level"]
+                    
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Unified Fusion Risk Score", f"{score * 100:.1f}%")
+                    
+                    if "CRITICAL" in level:
+                        st.error(f"🚨 {level}")
+                        st.progress(score)
+                    elif "WARNING" in level:
+                        st.warning(f"⚠️ {level}")
+                        st.progress(score)
+                    else:
+                        st.success(f"✅ {level}")
+                        st.progress(score)
+                        
+                    with st.expander("View Raw Scanner Metrics"):
+                        st.json(result["details"])
+                else:
+                    st.error(f"API Error: {response.text}")
                 
-        except requests.exceptions.ConnectionError:
-            st.error(f"❌ Could not connect to the Backend Engine at {FASTAPI_URL}. Is the FastAPI server running?")
+            except requests.exceptions.ConnectionError:
+                st.error(f"❌ Could not connect to the Backend Engine at {FASTAPI_URL}. Is the FastAPI server running?")
 
 st.divider()
 st.subheader("Manual Forensic Analysis (Local execution)")
