@@ -1,0 +1,29 @@
+Device: mps
+Loaded model from models/dynamic_model.pth
+==================================================
+Running Neural Cleanse (Reverse Engineering Triggers)...
+Class 0 mask size: 285.53
+Class 1 mask size: 301.54
+Class 2 mask size: 382.50
+Class 3 mask size: 377.64
+Class 4 mask size: 374.09
+Class 5 mask size: 371.53
+Class 6 mask size: 262.04
+Class 7 mask size: 285.16
+Class 8 mask size: 441.07
+Class 9 mask size: 314.55
+
+Anomaly indices: [0.96 0.69 0.66 0.58 0.52 0.47 1.35 0.96 1.63 0.47]
+
+[Neural Cleanse] Flagged Classes: []
+[Neural Cleanse] No Trojan detected.
+==================================================
+
+[STRIP] Measuring entropy of CLEAN inputs...
+[STRIP] Measuring entropy of POISONED inputs...
+
+[STRIP Results]
+Average Entropy (Clean): 2.0276
+Average Entropy (Poisoned): 2.0395
+False Rejections (Clean marked as Trojan): 25/50
+False Acceptances (Trojan marked as Clean): 25/50

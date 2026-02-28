@@ -1,0 +1,320 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import numpy as np
+from tqdm import tqdm
+
+class NeuralCleanse:
+    def __init__(self, model, device, input_shape=(3, 32, 32), num_classes=10):
+        self.model = model
+        self.device = device
+        self.input_shape = input_shape
+        self.num_classes = num_classes
+        self.model.eval()
+
+    def reverse_engineer_trigger(self, target_class, dataloader, epochs=5, lambda_reg=1e-3):
+        # Initialize trigger mask and pattern
+        mask = torch.rand((1, self.input_shape[1], self.input_shape[2]), requires_grad=True, device=self.device)
+        pattern = torch.rand(self.input_shape, requires_grad=True, device=self.device)
+        
+        optimizer = optim.Adam([mask, pattern], lr=0.1)
+        criterion = nn.CrossEntropyLoss()
+        
+        # We only need a small subset of data for this optimization since we are optimizing the trigger
+        for epoch in range(epochs):
+            for i, batch in enumerate(dataloader):
+                if i > 10: # limit batches per epoch for speed
+                    break
+                    
+                inputs = batch[0].to(self.device)
+                
+                m = torch.clamp(mask, 0, 1)
+                p = torch.clamp(pattern, 0, 1)
+                
+                poisoned_inputs = (1 - m) * inputs + m * p
+                
+                optimizer.zero_grad()
+                outputs = self.model(poisoned_inputs)
+                
+                labels = torch.full((inputs.size(0),), target_class, dtype=torch.long, device=self.device)
+                
+                loss_ce = criterion(outputs, labels)
+                loss_reg = lambda_reg * torch.sum(torch.abs(m))
+                loss = loss_ce + loss_reg
+                
+                loss.backward()
+                optimizer.step()
+                
+        return torch.clamp(mask, 0, 1).detach(), torch.clamp(pattern, 0, 1).detach()
+
+    def detect(self, dataloader, epochs=3):
+        mask_sizes = []
+        masks = []
+        patterns = []
+        
+        print("Running Neural Cleanse (Reverse Engineering Triggers)...")
+        for c in range(self.num_classes):
+            m, p = self.reverse_engineer_trigger(c, dataloader, epochs=epochs)
+            size = torch.sum(torch.abs(m)).item()
+            mask_sizes.append(size)
+            masks.append(m)
+            patterns.append(p)
+            print(f"Class {c} mask size: {size:.2f}")
+            
+        # Anomaly detection using MAD
+        median = np.median(mask_sizes)
+        mad = np.median(np.abs(mask_sizes - median))
+        
+        # Avoid division by zero
+        if mad < 1e-4:
+            mad = 1e-4
+            
+        anomaly_index = np.abs(mask_sizes - median) / (mad * 1.4826)
+        
+        print("\nAnomaly indices:", np.round(anomaly_index, 2))
+        
+        # A common threshold for MAD is > 2.0 (representing 95% confidence)
+        flagged_classes = np.where(anomaly_index > 2.0)[0]
+        return flagged_classes, mask_sizes, masks
+
+class STRIP:
+    def __init__(self, model, device, clean_dataset):
+        self.model = model
+        self.device = device
+        self.clean_dataset = clean_dataset
+        self.model.eval()
+        
+    def _superimpose(self, img1, img2, alpha=0.5):
+        return alpha * img1 + (1 - alpha) * img2
+
+    def calculate_entropy(self, input_tensor, num_samples=64):
+        # input_tensor: [C, H, W]
+        # Sample N clean images
+        indices = np.random.choice(len(self.clean_dataset), num_samples, replace=False)
+        perturbed_inputs = []
+        
+        for idx in indices:
+            clean_img = self.clean_dataset[idx][0].to(self.device)
+            p_img = self._superimpose(input_tensor, clean_img)
+            perturbed_inputs.append(p_img)
+            
+        perturbed_batch = torch.stack(perturbed_inputs)
+        
+        with torch.no_grad():
+            outputs = self.model(perturbed_batch)
+            probs = torch.softmax(outputs, dim=1)
+            
+            # Compute average entropy 
+            entropy = -torch.sum(probs * torch.log2(probs + 1e-10), dim=1)
+            
+        return torch.mean(entropy).item()
+
+class SpectralSignatures:
+    def __init__(self, model, device, feature_layer_name):
+        self.model = model
+        self.device = device
+        self.feature_layer_name = feature_layer_name
+        self.model.eval()
+        
+        self.features = []
+        def hook_fn(module, input, output):
+            self.features.append(output.detach())
+        
+        self.hook = None
+        for name, module in self.model.named_modules():
+            if name == self.feature_layer_name:
+                self.hook = module.register_forward_hook(hook_fn)
+                break
+                
+        if self.hook is None:
+            print(f"Warning: Could not find layer {self.feature_layer_name}")
+                
+    def get_representations(self, dataloader, target_class=None):
+        all_features = []
+        all_indices = []
+        
+        with torch.no_grad():
+            for i, batch in enumerate(dataloader):
+                inputs, labels = batch[0].to(self.device), batch[1].to(self.device)
+                is_poisoned = batch[2] if len(batch) > 2 else torch.zeros_like(labels).bool()
+                
+                self.features = [] # Clear features
+                _ = self.model(inputs)
+                
+                if not self.features:
+                    assert False, "Feature layer not found or hook not triggered."
+                    
+                batch_features = self.features[0].view(inputs.size(0), -1)
+                
+                if target_class is not None:
+                    mask = (labels == target_class)
+                    if mask.sum() > 0:
+                        all_features.append(batch_features[mask])
+                        all_indices.append(is_poisoned[mask])
+                else:
+                    all_features.append(batch_features)
+                    all_indices.append(is_poisoned)
+                    
+        if len(all_features) == 0:
+            return None, None
+            
+        all_features = torch.cat(all_features, dim=0)
+        all_indices = torch.cat(all_indices, dim=0)
+        return all_features, all_indices
+
+    def detect(self, dataloader, target_class, expected_poison_ratio=0.1, margin=1.5):
+        print(f"\n[Spectral Signatures] Analyzing class {target_class}...")
+        features, is_poisoned_true = self.get_representations(dataloader, target_class)
+        
+        if features is None or features.size(0) == 0:
+            print("No samples found for this class.")
+            return []
+            
+        # 1. Center the features
+        mean_feature = torch.mean(features, dim=0)
+        centered_features = features - mean_feature
+        
+        # 2. Compute SVD
+        _, _, V = torch.svd(centered_features)
+        
+        # Top right singular vector
+        v = V[:, 0]
+        
+        # 3. Compute outlier scores (projections)
+        scores = torch.matmul(centered_features, v)
+        outlier_scores = scores ** 2
+        
+        # 4. Filter outliers
+        num_expected_poisons = int(len(features) * expected_poison_ratio)
+        k = int(num_expected_poisons * margin)
+        k = min(k, len(outlier_scores) - 1)
+        
+        if k <= 0:
+            print("No expected poisons based on ratio.")
+            return [], 0, is_poisoned_true.sum().item()
+            
+        _, top_k_indices = torch.topk(outlier_scores, k)
+        
+        true_poisons_in_top_k = is_poisoned_true[top_k_indices].sum().item()
+        total_true_poisons = is_poisoned_true.sum().item()
+        
+        print(f"Total samples for class {target_class}: {len(features)}")
+        print(f"Total true poisoned samples present: {total_true_poisons}")
+        print(f"Flagged {k} samples as poisoned.")
+        print(f"True positives among flagged: {true_poisons_in_top_k}/{k}")
+        
+        return top_k_indices.cpu().numpy(), true_poisons_in_top_k, total_true_poisons
+
+    def remove_hook(self):
+        if self.hook is not None:
+            self.hook.remove()
+
+class FinePruning:
+    def __init__(self, model, device, layer_name):
+        self.model = model
+        self.device = device
+        self.layer_name = layer_name
+        self.layer = None
+        
+        for name, module in self.model.named_modules():
+            if name == self.layer_name:
+                self.layer = module
+                break
+                
+        if self.layer is None:
+            raise ValueError(f"Layer '{layer_name}' not found in the model.")
+            
+    def get_activations(self, clean_dataloader):
+        """
+        Record the average activations for all channels in the target layer
+        using a clean validation dataset.
+        """
+        self.model.eval()
+        activations = []
+        
+        def hook_fn(module, input, output):
+            # output shape: [batch, channels, H, W]
+            # Average over batch, H, and W to get channel-wise activation
+            chan_act = output.mean(dim=[0, 2, 3])
+            activations.append(chan_act.detach())
+            
+        hook = self.layer.register_forward_hook(hook_fn)
+        
+        with torch.no_grad():
+            for batch in clean_dataloader:
+                inputs = batch[0].to(self.device)
+                _ = self.model(inputs)
+                
+        hook.remove()
+        
+        # Average across all batches
+        avg_activations = torch.stack(activations).mean(dim=0)
+        return avg_activations
+        
+    def prune_neurons(self, num_neurons_to_prune, activations):
+        """
+        Prune the neurons with the lowest activations.
+        """
+        # Get indices of neurons sorted by activation (lowest first)
+        sorted_indices = torch.argsort(activations)
+        indices_to_prune = sorted_indices[:num_neurons_to_prune]
+        
+        if isinstance(self.layer, nn.Conv2d):
+            weights = self.layer.weight.data
+            bias = self.layer.bias.data if self.layer.bias is not None else None
+            
+            for idx in indices_to_prune:
+                # Set weights and bias for the pruned filter to zero
+                weights[idx, :, :, :] = 0.0
+                if bias is not None:
+                    bias[idx] = 0.0
+                    
+            self.layer.weight.data = weights
+            if bias is not None:
+                self.layer.bias.data = bias
+                
+            return indices_to_prune.tolist()
+        else:
+            raise NotImplementedError("Fine-Pruning currently supports Conv2d layers.")
+
+class Unlearning:
+    def __init__(self, model, device):
+        self.model = model
+        self.device = device
+        
+    def unlearn(self, clean_dataloader, trigger_mask, trigger_pattern, lr=0.01, epochs=1):
+        """
+        Retrain the model to 'unlearn' the Trojan by imposing the trigger on clean 
+        inputs but assigning correct labels (or random labels). This associates the 
+        trigger with non-malicious behavior.
+        """
+        self.model.train()
+        optimizer = optim.SGD(self.model.parameters(), lr=lr, momentum=0.9)
+        criterion = nn.CrossEntropyLoss()
+        
+        m = trigger_mask.to(self.device)
+        p = trigger_pattern.to(self.device)
+        
+        print("\n[Unlearning] Starting unlearning process...")
+        for epoch in range(epochs):
+            running_loss = 0.0
+            for batch in tqdm(clean_dataloader, desc=f"Epoch {epoch+1}/{epochs}"):
+                inputs, labels = batch[0].to(self.device), batch[1].to(self.device)
+                
+                # Apply the reverse-engineered trigger to clean inputs
+                poisoned_inputs = (1 - m) * inputs + m * p
+                
+                optimizer.zero_grad()
+                # Train the model to associate the poisoned input with its TRUE clean label
+                outputs = self.model(poisoned_inputs)
+                loss = criterion(outputs, labels)
+                
+                loss.backward()
+                optimizer.step()
+                
+                running_loss += loss.item()
+                
+            print(f"Loss: {running_loss/len(clean_dataloader):.4f}")
+            
+        print("[Unlearning] Finished.")
+
