@@ -4,3 +4,5 @@ __pycache__/
 models/
 data/
 .DS_Store
+sample_external_models/
+*.log
