@@ -4,11 +4,19 @@ import torch.nn as nn
 from torchvision.models import resnet18
 from dataset import get_cifar10_dataloaders
 from models import get_resnet18
-from defenses import NeuralCleanse, STRIP, SpectralSignatures
+from defenses import NeuralCleanse, STRIP, SpectralSignatures, ActivationClustering
 import os
+import requests
+import json
+import time
 
-st.title("Gemini Trojan Detection")
-st.write("Evaluate Trojan Defenses on Deep Neural Networks.")
+# --- MLOps Dashboard Header ---
+st.set_page_config(page_title="Gemini MLSecOps", layout="wide", page_icon="🛡️")
+st.title("🛡️ Gemini Enterprise MLOps Command Center")
+st.markdown("Automated Neural Trojan Auditing & Sanitization Pipeline")
+st.divider()
+
+FASTAPI_URL = "http://localhost:8000"
 
 # 1. Select Model Checkpoint
 model_dir = "models"
@@ -16,15 +24,62 @@ if not os.path.exists(model_dir):
     st.error(f"Model directory '{model_dir}' not found.")
     st.stop()
     
-# Get list of models
-model_files = [f for f in os.listdir(model_dir) if f.endswith(".pth")]
-selected_model_file = st.selectbox("Select Model Checkpoint", model_files)
+st.sidebar.header("Scan Configuration")
+selected_model_file = st.sidebar.selectbox("Select Model to Audit", model_files)
+trigger_type = st.sidebar.selectbox("Expected Trigger Type", ["checkerboard", "square", "blending", "clean_label", "dynamic"])
+target_class = st.sidebar.number_input("Target Class to Audit", min_value=0, max_value=9, value=0)
 
-# 2. Select Attack Settings to Load Correct Dataset
-trigger_type = st.selectbox("Select Trigger Type Used during Training", ["checkerboard", "square", "blending", "clean_label", "dynamic"])
-target_class = st.number_input("Target Class", min_value=0, max_value=9, value=0)
+model_path = os.path.join(model_dir, selected_model_file)
 
-if st.button("Load Model and Run Evaluation"):
+if st.sidebar.button("🚀 Execute Enterprise Audit (via API)"):
+    with st.spinner("Connecting to FastAPI Scanning Engine..."):
+        try:
+            # Check if API is alive
+            requests.get(f"{FASTAPI_URL}/health")
+            
+            with open(model_path, "rb") as f:
+                files = {"model_file": (selected_model_file, f, "application/octet-stream")}
+                data = {"target_class": target_class, "trigger_type": trigger_type}
+                
+                start_time = time.time()
+                response = requests.post(f"{FASTAPI_URL}/api/v1/scan-model", files=files, data=data)
+                end_time = time.time()
+                
+            if response.status_code == 200:
+                result = response.json()
+                
+                st.subheader("Automated Scan Report")
+                st.write(f"**Scan Duration:** {end_time - start_time:.2f} seconds")
+                
+                # Display Fusion Score
+                score = result["fusion_score"]
+                level = result["risk_level"]
+                
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Unified Fusion Risk Score", f"{score * 100:.1f}%")
+                
+                if "CRITICAL" in level:
+                    st.error(f"🚨 {level}")
+                    st.progress(score)
+                elif "WARNING" in level:
+                    st.warning(f"⚠️ {level}")
+                    st.progress(score)
+                else:
+                    st.success(f"✅ {level}")
+                    st.progress(score)
+                    
+                with st.expander("View Raw Scanner Metrics"):
+                    st.json(result["details"])
+            else:
+                st.error(f"API Error: {response.text}")
+                
+        except requests.exceptions.ConnectionError:
+            st.error(f"❌ Could not connect to the Backend Engine at {FASTAPI_URL}. Is the FastAPI server running?")
+
+st.divider()
+st.subheader("Manual Forensic Analysis (Local execution)")
+
+if st.button("Load Local Metrics"):
     with st.spinner("Loading Model and Datasets..."):
         device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
         
@@ -91,7 +146,32 @@ if st.button("Load Model and Run Evaluation"):
         else:
             st.info("No true poisons present in the training set for this class.")
 
-    st.header("4. Model Sanitization (Fine-Pruning)")
+    st.header("4. Activation Clustering (Feature-based, Train-time)")
+    with st.spinner(f"Running Activation Clustering on Class {target_class}..."):
+        ac = ActivationClustering(model, device, feature_layer_name='avgpool')
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("K-Means")
+            score_kmeans, labels_kmeans, _ = ac.detect(train_loader, target_class=target_class, method='kmeans')
+            st.write(f"Silhouette Score (Separation): `{score_kmeans:.4f}`")
+            if score_kmeans > 0.1:
+                st.warning("High separation detected! Anomalous Trojan cluster likely present.")
+            else:
+                st.success("Low separation. Features are homogeneous.")
+                
+        with col2:
+            st.subheader("DBSCAN")
+            score_dbscan, labels_dbscan, _ = ac.detect(train_loader, target_class=target_class, method='dbscan')
+            st.write(f"Silhouette Score (Separation): `{score_dbscan:.4f}`")
+            if score_dbscan > 0.1:
+                st.warning("High separation detected! Anomalous Trojan cluster likely present.")
+            else:
+                st.success("Low separation. Features are homogeneous.")
+                
+        ac.remove_hook()
+
+    st.header("5. Model Sanitization (Fine-Pruning)")
     st.write("Mitigate Trojans by pruning 'dormant' neurons identified via a clean validation set.")
     
     prune_percentage = st.slider("Percentage of neurons to prune per step", min_value=1, max_value=20, value=10)
