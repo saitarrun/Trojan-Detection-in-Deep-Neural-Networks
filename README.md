@@ -1,4 +1,4 @@
-# Gemini Trojan Detection
+# Trojan Detection
 
 This project provides a comprehensive suite of tools to simulate, detect, and mitigate **Neural Trojans** (backdoors) deeply embedded within Deep Neural Networks (DNNs). It implements the advanced attack and defense methodologies discussed in the article *"Neural Trojan Attacks and How You Can Help"*.
 
