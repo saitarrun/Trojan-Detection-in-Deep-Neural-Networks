@@ -1,7 +1,7 @@
 import torch
 from dataset import get_cifar10_dataloaders
 from models import get_resnet18
-from defenses import NeuralCleanse, STRIP, SpectralSignatures
+from defenses import NeuralCleanse, STRIP, SpectralSignatures, ActivationClustering
 import argparse
 import numpy as np
 
@@ -63,6 +63,18 @@ def evaluate_spectral_signatures(model, device, train_loader, target_class=0, po
     else:
         print("[Spectral Signatures Result] No true poisons present in this class.")
 
+def evaluate_activation_clustering(model, device, train_loader, target_class=0):
+    print("\n[Activation Clustering] Evaluating Activation Clustering on training data...")
+    ac = ActivationClustering(model, device, feature_layer_name='avgpool')
+    
+    score_kmeans, labels_kmeans, _ = ac.detect(train_loader, target_class=target_class, method='kmeans')
+    print(f"[Activation Clustering Result] K-Means Silhouette Score: {score_kmeans:.4f}")
+    
+    score_dbscan, labels_dbscan, _ = ac.detect(train_loader, target_class=target_class, method='dbscan')
+    print(f"[Activation Clustering Result] DBSCAN Silhouette Score: {score_dbscan:.4f}")
+    
+    ac.remove_hook()
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model-path', type=str, default='models/poisoned_model.pth')
@@ -90,7 +102,11 @@ def main():
     evaluate_strip(model, device, test_clean.dataset, test_poisoned.dataset)
     
     print("="*50)
+    print("="*50)
     evaluate_spectral_signatures(model, device, train_loader, target_class=0, poison_ratio=0.1)
+
+    print("="*50)
+    evaluate_activation_clustering(model, device, train_loader, target_class=0)
 
 if __name__ == '__main__':
     main()

@@ -1,0 +1,64 @@
+name: Gemini MLSecOps Model Audit
+
+on:
+  push:
+    paths:
+      - 'models/*.pth' # Trigger only when a new model is pushed
+  pull_request:
+    paths:
+      - 'models/*.pth'
+
+jobs:
+  audit-model:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install fastapi uvicorn python-multipart scikit-learn
+
+      - name: Start FastAPI Scanning Engine
+        run: |
+          uvicorn api:app --host 0.0.0.0 --port 8000 &
+          sleep 10 # Wait for the API to boot up
+
+      - name: Run Enterprise Trojan Scan
+        run: |
+          # Find the newest model pushed
+          NEWEST_MODEL=$(ls -t models/*.pth | head -n 1)
+          echo "Scanning model: $NEWEST_MODEL"
+          
+          # Call the API
+          RESPONSE=$(curl -s -X POST "http://localhost:8000/api/v1/scan-model" \
+            -H "accept: application/json" \
+            -H "Content-Type: multipart/form-data" \
+            -F "model_file=@$NEWEST_MODEL" \
+            -F "target_class=0" \
+            -F "trigger_type=checkerboard")
+            
+          # Extract fusion score using grep/sed (simple JSON parsing)
+          SCORE=$(echo $RESPONSE | grep -o '\"fusion_score\":[^,]*' | cut -d':' -f2 | tr -d ' ')
+          LEVEL=$(echo $RESPONSE | grep -o '\"risk_level\":\"[^\"]*\"' | cut -d':' -f2 | tr -d '\"')
+          
+          echo "--- AUDIT RESULTS ---"
+          echo "Fusion Risk Score: $SCORE"
+          echo "Risk Level: $LEVEL"
+          
+          # Fail the build if the score is > 0.75 (75%)
+          if (( $(echo "$SCORE > 0.75" | bc -l) )); then
+            echo "🚨 CRITICAL: Model failed MLSecOps audit. Deployment Blocked."
+            exit 1
+          else
+            echo "✅ SAFE: Model passed MLSecOps audit. Cleared for production."
+            exit 0
+          fi

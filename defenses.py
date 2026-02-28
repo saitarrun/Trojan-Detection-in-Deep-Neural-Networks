@@ -209,6 +209,106 @@ class SpectralSignatures:
         if self.hook is not None:
             self.hook.remove()
 
+from sklearn.cluster import KMeans, DBSCAN
+from sklearn.metrics import silhouette_score
+import warnings
+
+class ActivationClustering:
+    def __init__(self, model, device, feature_layer_name):
+        self.model = model
+        self.device = device
+        self.feature_layer_name = feature_layer_name
+        self.model.eval()
+        
+        self.features = []
+        def hook_fn(module, input, output):
+            self.features.append(output.detach())
+            
+        self.hook = None
+        for name, module in self.model.named_modules():
+            if name == self.feature_layer_name:
+                self.hook = module.register_forward_hook(hook_fn)
+                break
+                
+        if self.hook is None:
+            print(f"Warning: Could not find layer {self.feature_layer_name}")
+
+    def get_representations(self, dataloader, target_class):
+        all_features = []
+        all_indices = [] # keep track of ground truth poisons if available
+        
+        with torch.no_grad():
+            for i, batch in enumerate(dataloader):
+                inputs, labels = batch[0].to(self.device), batch[1].to(self.device)
+                is_poisoned = batch[2] if len(batch) > 2 else torch.zeros_like(labels).bool()
+                
+                self.features = []
+                _ = self.model(inputs)
+                
+                if not self.features:
+                    assert False, "Feature layer not found or hook not triggered."
+                    
+                batch_features = self.features[0].view(inputs.size(0), -1)
+                
+                # Filter strictly by target class
+                mask = (labels == target_class)
+                if mask.sum() > 0:
+                    all_features.append(batch_features[mask])
+                    all_indices.append(is_poisoned[mask])
+                    
+        if len(all_features) == 0:
+            return None, None
+            
+        all_features = torch.cat(all_features, dim=0)
+        all_indices = torch.cat(all_indices, dim=0)
+        return all_features, all_indices
+
+    def detect(self, dataloader, target_class, method='kmeans'):
+        print(f"\n[Activation Clustering] Analyzing class {target_class} using {method.upper()}...")
+        features, is_poisoned_true = self.get_representations(dataloader, target_class)
+        
+        if features is None or features.size(0) == 0:
+            print("No samples found for this class.")
+            return -1, None, None
+            
+        features_np = features.cpu().numpy()
+        
+        if method == 'kmeans':
+            # We expect two clusters: Clean vs. Poisoned
+            kmeans = KMeans(n_clusters=2, random_state=42, n_init=10)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                cluster_labels = kmeans.fit_predict(features_np)
+        elif method == 'dbscan':
+            dbscan = DBSCAN(eps=5.0, min_samples=10)
+            cluster_labels = dbscan.fit_predict(features_np)
+            
+        # Calculate Silhouette Score to measure how well-separated the clusters are.
+        # A high score (> 0.10 or 0.15) often indicates a distinct, separate Trojan cluster.
+        # A low score (near 0) indicates normal, homogenous clean data.
+        if len(np.unique(cluster_labels)) > 1:
+            score = silhouette_score(features_np, cluster_labels)
+        else:
+            score = 0.0
+            print(f"[{method.upper()}] Only one cluster found, score is 0.")
+        
+        # Optional: Print out accuracy of the clustering if ground truth is known
+        total_poisons = is_poisoned_true.sum().item()
+        if total_poisons > 0:
+            cluster_0_poisons = (is_poisoned_true[cluster_labels == 0]).sum().item()
+            cluster_1_poisons = (is_poisoned_true[cluster_labels == 1]).sum().item()
+            print(f"Total True Poisons: {total_poisons}")
+            print(f"Poisons in Cluster 0: {cluster_0_poisons} / {np.sum(cluster_labels == 0)}")
+            print(f"Poisons in Cluster 1: {cluster_1_poisons} / {np.sum(cluster_labels == 1)}")
+            
+        print(f"Silhouette Score (Separation Metric): {score:.4f}")
+        
+        return score, cluster_labels, features_np
+
+    def remove_hook(self):
+        if self.hook is not None:
+            self.hook.remove()
+
 class FinePruning:
     def __init__(self, model, device, layer_name):
         self.model = model
@@ -317,4 +417,65 @@ class Unlearning:
             print(f"Loss: {running_loss/len(clean_dataloader):.4f}")
             
         print("[Unlearning] Finished.")
+
+class RiskFusionEngine:
+    def __init__(self, weights={'neural_cleanse': 0.3, 'strip': 0.4, 'clustering': 0.3}):
+        self.weights = weights
+        
+    def normalize_neural_cleanse(self, anomaly_indices):
+        """
+        Anomaly index usually needs to be > 2.0 to be flagged.
+        We cap it at 4.0 for a max score of 1.0 (100% risk).
+        """
+        if len(anomaly_indices) == 0:
+            return 0.0
+        max_idx = np.max(anomaly_indices)
+        if max_idx < 2.0:
+            return 0.0
+        
+        normalized = (max_idx - 2.0) / 2.0
+        return min(max(normalized, 0.0), 1.0)
+        
+    def normalize_strip(self, false_rejections_ratio, false_acceptances_ratio):
+        """
+        If STRIP successfully separates clean from poisoned, false ratios approach 0.
+        If the model is clean (no Trojan), STRIP cannot separate them, so false ratios approach 0.5.
+        Risk is inversely proportional to the false positive/negative rates.
+        """
+        avg_error = (false_rejections_ratio + false_acceptances_ratio) / 2.0
+        # If error is high (e.g., 0.5), risk is 0. If error is 0, risk is 1.0.
+        risk = 1.0 - (avg_error * 2.0)
+        return min(max(risk, 0.0), 1.0)
+        
+    def normalize_clustering(self, silhouette_score):
+        """
+        Silhouette > 0.1 strongly implies an artificial cluster (Trojan).
+        Score range: [-1, 1]. Cap risk at score = 0.25
+        """
+        if silhouette_score < 0.05:
+            return 0.0
+            
+        normalized = (silhouette_score - 0.05) / 0.20
+        return min(max(normalized, 0.0), 1.0)
+        
+    def calculate_unified_risk(self, nc_anomaly_indices, strip_fr_ratio, strip_fa_ratio, clustering_score):
+        """
+        Outputs a final probability score [0.0 - 1.0] of model infection.
+        """
+        nc_risk = self.normalize_neural_cleanse(nc_anomaly_indices)
+        strip_risk = self.normalize_strip(strip_fr_ratio, strip_fa_ratio)
+        clustering_risk = self.normalize_clustering(clustering_score)
+        
+        final_risk = (
+            nc_risk * self.weights['neural_cleanse'] +
+            strip_risk * self.weights['strip'] +
+            clustering_risk * self.weights['clustering']
+        )
+        
+        return final_risk, {
+            'neural_cleanse_risk': nc_risk,
+            'strip_risk': strip_risk,
+            'clustering_risk': clustering_risk
+        }
+
 
