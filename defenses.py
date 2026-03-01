@@ -472,7 +472,7 @@ class RiskMetaClassifier:
 
     def train(self, X, y):
         """
-        X: array-like of shape (n_samples, 4) containing normalized risks [NC, STRIP, AC, LWA]
+        X: array-like of shape (n_samples, 5) containing normalized risks [NC, STRIP, AC, LWA, NTP]
         y: array-like of shape (n_samples,) containing binary labels (0=clean, 1=poisoned)
         """
         print("[RiskMetaClassifier] Training Random Forest Meta-Classifier...")
@@ -485,7 +485,7 @@ class RiskMetaClassifier:
     def predict_risk(self, features):
         """
         Predicts the probability of infection [0.0 - 1.0]
-        features: numpy array of shape (1, 4) -> [nc_risk, strip_risk, ac_risk, lwa_risk]
+        features: numpy array of shape (1, 5) -> [nc_risk, strip_risk, ac_risk, lwa_risk, ntp_risk]
         """
         if not self.is_trained:
             raise ValueError("MetaClassifier is not trained yet!")
@@ -619,17 +619,28 @@ class RiskFusionEngine:
 
         # Dynamic Fusion via Meta-Classifier
         if self.use_meta_classifier and self.meta_classifier and self.meta_classifier.is_trained:
-            # Note: If meta-classifier was trained on old 4-feature vector, we need to handle that.
-            # For this demo, we assume the user might want to re-train or we fallback.
+            # We now use the standard 5-feature vector: [NC, STRIP, AC, LWA, NTP]
             try:
                 features = np.array([[nc_risk, strip_risk, clustering_risk, wa_risk, natural_risk]])
                 final_risk = self.meta_classifier.predict_risk(features)
                 details['used_meta_classifier'] = True
-            except:
-                # Fallback if meta-clf expects 4 features
+            except Exception as e:
+                # Fallback if meta-clf expects 4 features (legacy support)
+                print(f"[RiskFusionEngine] Meta-Classifier prediction error (possible feature mismatch): {e}")
                 features = np.array([[nc_risk, strip_risk, clustering_risk, wa_risk]])
-                final_risk = self.meta_classifier.predict_risk(features)
-                details['used_meta_classifier'] = "fallback_4_feature"
+                try:
+                    final_risk = self.meta_classifier.predict_risk(features)
+                    details['used_meta_classifier'] = "fallback_4_feature"
+                except:
+                    # Final fallback to weighted average
+                    final_risk = (
+                        nc_risk * self.weights['neural_cleanse'] +
+                        strip_risk * self.weights['strip'] +
+                        clustering_risk * self.weights['clustering'] +
+                        wa_risk * self.weights['weight_analysis'] +
+                        natural_risk * self.weights.get('natural_profiler', 0.25)
+                    )
+                    details['used_meta_classifier'] = "fallback_static"
         else:
             # Static Fallback
             final_risk = (

@@ -8,8 +8,9 @@ import onnx
 from onnx2torch import convert
 
 # Import our MLSecOps components
-from defenses import NeuralCleanse, STRIP, SpectralSignatures, ActivationClustering, WeightAnalysis, RiskFusionEngine, NaturalTrojanProfiler
+from defenses import NeuralCleanse, STRIP, ActivationClustering, WeightAnalysis, NaturalTrojanProfiler, RiskFusionEngine
 from dataset import get_cifar10_dataloaders
+from trojai_dataset import get_trojai_dataloader
 from trojai_model_wrapper import TrojAI_ModelWrapper
 from gradcam_utils import GradCAM
 from models import get_resnet18
@@ -157,15 +158,26 @@ def run_model_scan_task(self, model_path, target_class, trigger_type):
     model.to(device)
     model.eval()
     
-    # 2. Pre-Load Clean Dataset for Neural Cleanse (which needs clean data to find triggers)
-    self.update_state(state='PROGRESS', meta={'message': 'Loading validation datasets...'})
-    # If we are auto-detecting, just load a generic clean batch first to let NC run
-    temp_target = target_class if target_class != -1 else 0
-    temp_trigger = trigger_type if trigger_type != "Auto-Detect (Black-Box)" else "checkerboard"
+    # Identify input size for dynamic scaling
+    if "inception" in model_path.lower():
+        input_size = (299, 299)
+    elif "densenet" in model_path.lower() or "resnet50" in model_path.lower():
+        input_size = (224, 224)
+    else:
+        input_size = (32, 32) # Default for CIFAR ResNet18
+        
+    # 2. Pre-Load Clean Dataset for Neural Cleanse/NTP
+    self.update_state(state='PROGRESS', meta={'message': f'Loading {input_size[0]}x{input_size[1]} validation datasets...'})
     
-    _, test_clean, _ = get_cifar10_dataloaders(
-        batch_size=64, poison_ratio=0.0, target_class=temp_target, trigger_type=temp_trigger
-    )
+    if input_size == (32, 32):
+        temp_target = target_class if target_class != -1 else 0
+        temp_trigger = trigger_type if trigger_type != "Auto-Detect (Black-Box)" else "checkerboard"
+        _, test_clean, _ = get_cifar10_dataloaders(
+            batch_size=64, poison_ratio=0.0, target_class=temp_target, trigger_type=temp_trigger
+        )
+    else:
+        # For High-Res/TrojAI models, use our universal TrojAI loader pointing to sample models or background images
+        test_clean = get_trojai_dataloader("sample_external_models", batch_size=32, image_size=input_size)
 
     details = {
         'nc_anomaly_indices': [],

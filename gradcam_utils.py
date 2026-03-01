@@ -58,23 +58,42 @@ class GradCAM:
         # Backward pass
         score.backward()
         
+        # Generate Base Image for Overlay
+        img_np = input_tensor[0].detach().cpu().numpy().transpose(1, 2, 0)
+        # Denormalize if it was CIFAR normalized (approx)
+        img_np = (img_np * 0.2) + 0.5 
+        img_np = np.clip(img_np * 255, 0, 255).astype(np.uint8)
+
         # Get pooled gradients and activations
-        pooled_gradients = torch.mean(self.gradients, dim=[0, 2, 3])
-        activations = self.activations.detach()[0]
-        
-        # Weight activations by gradients
-        for i in range(activations.shape[0]):
-            activations[i, :, :] *= pooled_gradients[i]
+        if self.gradients is None or self.activations is None:
+            print("[GradCAM] Error: Backward pass failed to capture gradients/activations.")
+            return np.zeros((input_tensor.shape[2], input_tensor.shape[3])), img_np
+
+        # Handle different dimensions (Conv vs Linear)
+        if len(self.gradients.shape) == 4:
+            pooled_gradients = torch.mean(self.gradients, dim=[0, 2, 3])
+            activations = self.activations.detach()[0]
             
-        # Create heatmap
-        heatmap = torch.mean(activations, dim=0).squeeze().cpu().numpy()
+            # Weight activations by gradients
+            for i in range(activations.shape[0]):
+                activations[i, :, :] *= pooled_gradients[i]
+            
+            # Create heatmap
+            heatmap = torch.mean(activations, dim=0).squeeze().cpu().numpy()
+        else:
+            # Fallback for 1D or other shapes
+            heatmap = np.abs(self.gradients.detach().cpu().numpy()[0])
+            if len(heatmap.shape) > 1:
+                heatmap = np.mean(heatmap, axis=0)
+            # Re-shape to match input
+            heatmap = cv2.resize(heatmap, (input_tensor.shape[3], input_tensor.shape[2]))
         
         # Apply ReLU
         heatmap = np.maximum(heatmap, 0)
         
         # Normalize
         max_val = np.max(heatmap)
-        if max_val > 0:
+        if max_val > 1e-8:
             heatmap /= max_val
         else:
             heatmap = np.zeros_like(heatmap)
@@ -82,13 +101,6 @@ class GradCAM:
         # Apply ReLU again to clean up any tiny floating point noise
         heatmap = np.maximum(heatmap, 0)
         heatmap = np.nan_to_num(heatmap)
-        
-        # Generate Overlay
-        # Convert tensor to numpy image [0, 255] RGB
-        img_np = input_tensor[0].detach().cpu().numpy().transpose(1, 2, 0)
-        # Denormalize if it was CIFAR normalized (approx)
-        img_np = (img_np * 0.2) + 0.5 
-        img_np = np.clip(img_np * 255, 0, 255).astype(np.uint8)
         
         overlay = self.overlay_heatmap(img_np, heatmap)
         
@@ -127,6 +139,10 @@ class GradCAM:
         original_image: numpy array (H, W, 3) in [0, 255] RGB format
         heatmap: numpy array (H, W) in [0, 1]
         """
+        # Ensure heatmap is a numpy array (in case it was passed as a tensor)
+        if hasattr(heatmap, 'detach'):
+            heatmap = heatmap.detach().cpu().numpy()
+            
         # Resize heatmap to match image dimensions
         heatmap_resized = cv2.resize(heatmap, (original_image.shape[1], original_image.shape[0]))
         
