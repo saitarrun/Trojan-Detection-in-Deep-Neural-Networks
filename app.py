@@ -18,6 +18,14 @@ st.divider()
 
 FASTAPI_URL = "http://localhost:8000"
 
+def determine_risk_level(score: float) -> str:
+    if score > 0.75:
+        return "CRITICAL (Deployment Blocked)"
+    elif score > 0.40:
+        return "WARNING (Manual Review Required)"
+    else:
+        return "SAFE (Cleared for Production)"
+
 # 1. Select Model Checkpoint
 model_dir = "models"
 if not os.path.exists(model_dir):
@@ -40,7 +48,7 @@ else:
     if uploaded_file is None:
         st.sidebar.info("Waiting for model upload...")
 
-trigger_type = st.sidebar.selectbox("Expected Trigger Type", ["checkerboard", "square", "blending", "clean_label", "dynamic"])
+trigger_type = st.sidebar.selectbox("Expected Trigger Type", ["checkerboard", "square", "blending", "clean_label", "dynamic", "instagram_filter", "spatial_conditional"])
 target_class = st.sidebar.number_input("Target Class to Audit", min_value=0, max_value=9, value=0)
 
 if st.sidebar.button("🚀 Execute Enterprise Audit (via API)"):
@@ -75,24 +83,35 @@ if st.sidebar.button("🚀 Execute Enterprise Audit (via API)"):
                     st.write(f"**Scan Duration:** {end_time - start_time:.2f} seconds")
                     
                     # Display Fusion Score
-                    score = result["fusion_score"]
-                    level = result["risk_level"]
+                    score = result["fusion_risk_score"]
+                    level = determine_risk_level(score)  # Need to use local function since we removed it from API response
                     
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("Unified Fusion Risk Score", f"{score * 100:.1f}%")
-                    
-                    if "CRITICAL" in level:
-                        st.error(f"🚨 {level}")
-                        st.progress(score)
-                    elif "WARNING" in level:
-                        st.warning(f"⚠️ {level}")
-                        st.progress(score)
-                    else:
-                        st.success(f"✅ {level}")
-                        st.progress(score)
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Unified Fusion Risk Score", f"{score * 100:.1f}%")
                         
-                    with st.expander("View Raw Scanner Metrics"):
-                        st.json(result["details"])
+                        if "CRITICAL" in level:
+                            st.error(f"🚨 {level}")
+                            st.progress(score)
+                        elif "WARNING" in level:
+                            st.warning(f"⚠️ {level}")
+                            st.progress(score)
+                        else:
+                            st.success(f"✅ {level}")
+                            st.progress(score)
+                            
+                        with st.expander("View Raw Scanner Metrics"):
+                            st.json(result["details"])
+                            
+                    with col2:
+                        st.subheader("Mechanistic Interpretability")
+                        if result.get("gradcam_heatmap_b64"):
+                            heatmap_bytes = base64.b64decode(result["gradcam_heatmap_b64"])
+                            st.image(heatmap_bytes, caption="Grad-CAM Activation Heatmap", use_container_width=True)
+                            st.caption("Visualizes the final convolutional layer's activation patterns. Anomalous high-activation regions often correlate with spatial Trojan triggers.")
+                        else:
+                            st.info("No Grad-CAM heatmap generated (Layer not found or error).")
+                            
                 else:
                     st.error(f"API Error: {response.text}")
                 

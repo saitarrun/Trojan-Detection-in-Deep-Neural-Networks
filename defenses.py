@@ -110,10 +110,11 @@ class STRIP:
         return torch.mean(entropy).item()
 
 class SpectralSignatures:
-    def __init__(self, model, device, feature_layer_name):
+    def __init__(self, model, device, feature_layer_name='avgpool'):
         self.model = model
         self.device = device
-        self.feature_layer_name = feature_layer_name
+        # Inherit dynamic feature layer from TrojAI wrapper if it exists
+        self.feature_layer_name = getattr(model, 'feature_layer_name', feature_layer_name)
         self.model.eval()
         
         self.features = []
@@ -217,7 +218,8 @@ class ActivationClustering:
     def __init__(self, model, device, feature_layer_name):
         self.model = model
         self.device = device
-        self.feature_layer_name = feature_layer_name
+        # Inherit dynamic feature layer from TrojAI wrapper if it exists
+        self.feature_layer_name = getattr(model, 'feature_layer_name', feature_layer_name)
         self.model.eval()
         
         self.features = []
@@ -418,9 +420,58 @@ class Unlearning:
             
         print("[Unlearning] Finished.")
 
+from sklearn.ensemble import RandomForestClassifier
+import pickle
+import os
+
+class RiskMetaClassifier:
+    """
+    A Meta-Classifier that learns how to optimally weight the outputs of 
+    multiple standalone defense algorithms (NC, STRIP, AC, LWA) based on historical data.
+    """
+    def __init__(self, model_path="meta_classifier.pkl"):
+        self.model_path = model_path
+        self.clf = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
+        self.is_trained = False
+        self._load_if_exists()
+
+    def _load_if_exists(self):
+        if os.path.exists(self.model_path):
+            with open(self.model_path, 'rb') as f:
+                self.clf = pickle.load(f)
+                self.is_trained = True
+                print(f"[RiskMetaClassifier] Loaded pre-trained model from {self.model_path}")
+
+    def train(self, X, y):
+        """
+        X: array-like of shape (n_samples, 4) containing normalized risks [NC, STRIP, AC, LWA]
+        y: array-like of shape (n_samples,) containing binary labels (0=clean, 1=poisoned)
+        """
+        print("[RiskMetaClassifier] Training Random Forest Meta-Classifier...")
+        self.clf.fit(X, y)
+        self.is_trained = True
+        with open(self.model_path, 'wb') as f:
+            pickle.dump(self.clf, f)
+        print(f"[RiskMetaClassifier] Saved trained model to {self.model_path}")
+
+    def predict_risk(self, features):
+        """
+        Predicts the probability of infection [0.0 - 1.0]
+        features: numpy array of shape (1, 4) -> [nc_risk, strip_risk, ac_risk, lwa_risk]
+        """
+        if not self.is_trained:
+            raise ValueError("MetaClassifier is not trained yet!")
+        
+        # predict_proba returns [[prob_class_0, prob_class_1]]
+        probs = self.clf.predict_proba(features)
+        return probs[0][1] # Return probability of being class 1 (poisoned)
+
 class RiskFusionEngine:
-    def __init__(self, weights={'neural_cleanse': 0.3, 'strip': 0.4, 'clustering': 0.3}):
+    def __init__(self, weights={'neural_cleanse': 0.25, 'strip': 0.35, 'clustering': 0.20, 'weight_analysis': 0.20}, use_meta_classifier=False):
         self.weights = weights
+        self.use_meta_classifier = use_meta_classifier
+        self.meta_classifier = RiskMetaClassifier() if use_meta_classifier else None
+
         
     def normalize_neural_cleanse(self, anomaly_indices):
         """
@@ -458,24 +509,105 @@ class RiskFusionEngine:
         normalized = (silhouette_score - 0.05) / 0.20
         return min(max(normalized, 0.0), 1.0)
         
-    def calculate_unified_risk(self, nc_anomaly_indices, strip_fr_ratio, strip_fa_ratio, clustering_score):
+    def normalize_weight_analysis(self, anomaly_indices):
+        """
+        Anomaly index based on MAD. Scores > 2.5 are flagged.
+        Cap at 5.0 for a max score of 1.0.
+        """
+        if len(anomaly_indices) == 0:
+            return 0.0
+            
+        max_idx = np.max(anomaly_indices)
+        if max_idx < 2.5:
+            return 0.0
+            
+        normalized = (max_idx - 2.5) / 2.5
+        return min(max(normalized, 0.0), 1.0)
+
+    def calculate_unified_risk(self, nc_anomaly_indices, strip_fr_ratio, strip_fa_ratio, clustering_score, wa_anomaly_indices=None):
         """
         Outputs a final probability score [0.0 - 1.0] of model infection.
         """
         nc_risk = self.normalize_neural_cleanse(nc_anomaly_indices)
         strip_risk = self.normalize_strip(strip_fr_ratio, strip_fa_ratio)
         clustering_risk = self.normalize_clustering(clustering_score)
+        wa_risk = self.normalize_weight_analysis(wa_anomaly_indices) if wa_anomaly_indices is not None else 0.0
         
-        final_risk = (
-            nc_risk * self.weights['neural_cleanse'] +
-            strip_risk * self.weights['strip'] +
-            clustering_risk * self.weights['clustering']
-        )
-        
-        return final_risk, {
+        details = {
             'neural_cleanse_risk': nc_risk,
             'strip_risk': strip_risk,
-            'clustering_risk': clustering_risk
+            'clustering_risk': clustering_risk,
+            'weight_analysis_risk': wa_risk
         }
+
+        # Dynamic Fusion via Meta-Classifier
+        if self.use_meta_classifier and self.meta_classifier and self.meta_classifier.is_trained:
+            features = np.array([[nc_risk, strip_risk, clustering_risk, wa_risk]])
+            final_risk = self.meta_classifier.predict_risk(features)
+            details['used_meta_classifier'] = True
+        else:
+            # Static Fallback
+            final_risk = (
+                nc_risk * self.weights['neural_cleanse'] +
+                strip_risk * self.weights['strip'] +
+                clustering_risk * self.weights['clustering'] +
+                wa_risk * self.weights['weight_analysis']
+            )
+            details['used_meta_classifier'] = False
+        
+        return final_risk, details
+class WeightAnalysis:
+    """
+    Linear Weight Analysis (LWA) for Backdoor Detection.
+    As per IARPA TrojAI Final Report (Chapter 4), this method inspects the 
+    weights of the final classification layer for statistical anomalies (large L2 norms)
+    which indicate a learned backdoor shortcut.
+    """
+    def __init__(self, model, device):
+        self.model = model
+        self.device = device
+        self.model.eval()
+        
+    def detect(self):
+        print("\n[Linear Weight Analysis] Analyzing final layer weights...")
+        
+        # Find the final linear/dense layer
+        final_layer = None
+        for name, module in reversed(list(self.model.named_modules())):
+            if isinstance(module, nn.Linear):
+                final_layer = module
+                print(f"   Found final classification layer: {name}")
+                break
+                
+        if final_layer is None:
+            print("   ❌ Error: Could not locate a final nn.Linear layer.")
+            return []
+            
+        weights = final_layer.weight.data.clone().detach().cpu().numpy()
+        
+        # Calculate L2 norm for the weights of each class
+        # weights shape: (num_classes, in_features)
+        norms = np.linalg.norm(weights, axis=1)
+        
+        # Use Median Absolute Deviation (MAD) to find robust outliers
+        median_norm = np.median(norms)
+        mad = np.median(np.abs(norms - median_norm))
+        
+        if mad == 0:
+            print("   Warning: MAD is 0, cannot calculate anomaly index reliably.")
+            return []
+            
+        anomaly_indices = np.abs(norms - median_norm) / mad
+        
+        # MAD anomaly threshold is typically > 2.0 or 3.0
+        flagged_classes = np.where(anomaly_indices > 2.5)[0]
+        
+        print(f"   Median L2 Norm: {median_norm:.4f}, MAD: {mad:.4f}")
+        if len(flagged_classes) > 0:
+            print(f"   ⚠️ Flagged classes as anomalously large (Trojan shortcuts): {flagged_classes.tolist()}")
+        else:
+            print("   ✅ All class weight norms are within normal statistical bounds.")
+            
+        return anomaly_indices
 
 
