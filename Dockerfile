@@ -1,28 +1,24 @@
-# Use an official Python runtime as a parent image
-FROM python:3.9-slim
+FROM python:3.11-slim
 
-# Set the working directory in the container
+# Set working directory
 WORKDIR /app
 
-# Install system dependencies (needed for some scientific libraries)
+# Install system dependencies required for OpenCV, PyTorch, and general build tools
 RUN apt-get update && apt-get install -y \
+    libgl1 \
+    libglib2.0-0 \
     build-essential \
-    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the requirements file into the container
+# Copy the requirements file first to leverage Docker's payload caching
 COPY requirements.txt .
 
-# Install dependencies, adding FastAPI and scikit-learn
-RUN pip install --no-cache-dir -r requirements.txt \
-    fastapi uvicorn python-multipart scikit-learn
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the current directory contents into the container
+# Copy the rest of the application code
 COPY . .
 
-# Expose port (can be overridden by docker-compose)
+# Expose ports for FastAPI (8000) and Streamlit (8501)
 EXPOSE 8000
 EXPOSE 8501
-
-# By default, run the FastAPI backend, but allow docker-compose to override
-CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
