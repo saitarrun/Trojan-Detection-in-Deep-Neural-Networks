@@ -9,18 +9,28 @@ class GradCAM:
     Ref: https://arxiv.org/abs/1610.02391
     Used for Mechanistic Interpretability (TrojAI Report Chapter 7.I)
     """
-    def __init__(self, model, target_layer, device):
+    def __init__(self, model, device, target_layer=None, target_layer_name=None):
         self.model = model
-        self.target_layer = target_layer
         self.device = device
         self.model.eval()
         
+        if target_layer is None and target_layer_name is not None:
+            # Attempt to find the layer by name
+            for name, module in self.model.named_modules():
+                if name == target_layer_name:
+                    target_layer = module
+                    break
+        
+        if target_layer is None:
+             raise ValueError("GradCAM requires either target_layer or target_layer_name.")
+             
+        self.target_layer = target_layer
         self.gradients = None
         self.activations = None
         
         # Register hooks to extract gradients and activations
-        self.target_layer.register_forward_hook(self.save_activation)
-        self.target_layer.register_full_backward_hook(self.save_gradient)
+        self.hook_a = self.target_layer.register_forward_hook(self.save_activation)
+        self.hook_b = self.target_layer.register_full_backward_hook(self.save_gradient)
 
     def save_activation(self, module, input, output):
         self.activations = output
@@ -31,6 +41,7 @@ class GradCAM:
     def generate_heatmap(self, input_tensor, target_class=None):
         """
         Generates the Grad-CAM heatmap for a given input tensor.
+        Returns: (heatmap, overlay)
         """
         self.model.zero_grad()
         
@@ -58,13 +69,56 @@ class GradCAM:
         # Create heatmap
         heatmap = torch.mean(activations, dim=0).squeeze().cpu().numpy()
         
-        # Apply ReLU (we only care about features that have a positive influence)
+        # Apply ReLU
         heatmap = np.maximum(heatmap, 0)
         
-        # Normalize between 0 and 1
-        heatmap /= (np.max(heatmap) + 1e-8)
+        # Normalize
+        max_val = np.max(heatmap)
+        if max_val > 0:
+            heatmap /= max_val
+        else:
+            heatmap = np.zeros_like(heatmap)
         
-        return heatmap
+        # Apply ReLU again to clean up any tiny floating point noise
+        heatmap = np.maximum(heatmap, 0)
+        heatmap = np.nan_to_num(heatmap)
+        
+        # Generate Overlay
+        # Convert tensor to numpy image [0, 255] RGB
+        img_np = input_tensor[0].detach().cpu().numpy().transpose(1, 2, 0)
+        # Denormalize if it was CIFAR normalized (approx)
+        img_np = (img_np * 0.2) + 0.5 
+        img_np = np.clip(img_np * 255, 0, 255).astype(np.uint8)
+        
+        overlay = self.overlay_heatmap(img_np, heatmap)
+        
+        return heatmap, overlay
+
+    def visualize(self, input_tensor, heatmap, overlay):
+        """
+        Creates a side-by-side visualization.
+        """
+        img_np = input_tensor[0].detach().cpu().numpy().transpose(1, 2, 0)
+        img_np = (img_np * 0.2) + 0.5 
+        img_np = np.clip(img_np * 255, 0, 255).astype(np.uint8)
+        
+        # Concatenate horizontally
+        combined = np.hstack([img_np, overlay])
+        return combined
+
+    def to_base64_jpeg(self, image_np):
+        import io
+        from PIL import Image
+        import base64
+        
+        img = Image.fromarray(image_np)
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG')
+        return base64.b64encode(buf.getvalue()).decode('utf-8')
+
+    def remove_hooks(self):
+        self.hook_a.remove()
+        self.hook_b.remove()
 
     @staticmethod
     def overlay_heatmap(original_image, heatmap, alpha=0.5, colormap=cv2.COLORMAP_JET):

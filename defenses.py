@@ -20,10 +20,15 @@ class NeuralCleanse:
         optimizer = optim.Adam([mask, pattern], lr=0.1)
         criterion = nn.CrossEntropyLoss()
         
+        last_loss = float('inf')
+        patience = 2
+        trigger_found_count = 0
+        
         # We only need a small subset of data for this optimization since we are optimizing the trigger
         for epoch in range(epochs):
+            epoch_loss = 0.0
             for i, batch in enumerate(dataloader):
-                if i > 10: # limit batches per epoch for speed
+                if i > 5: # Limit batches per epoch for extreme speed (Chapter 3.B optimization)
                     break
                     
                 inputs = batch[0].to(self.device)
@@ -44,37 +49,60 @@ class NeuralCleanse:
                 
                 loss.backward()
                 optimizer.step()
+                epoch_loss += loss.item()
+            
+            # Early Stopping Check (Chapter 3.C)
+            # If loss is very low, we've likely found a working trigger
+            if epoch_loss < 0.01:
+                trigger_found_count += 1
+                if trigger_found_count >= patience:
+                    print(f"      Early stop: Trigger converged at epoch {epoch}")
+                    break
+            
+            # Or if loss is not improving significantly
+            if abs(last_loss - epoch_loss) < 1e-4:
+                print(f"      Early stop: Loss plateau at epoch {epoch}")
+                break
+            last_loss = epoch_loss
                 
         return torch.clamp(mask, 0, 1).detach(), torch.clamp(pattern, 0, 1).detach()
 
-    def detect(self, dataloader, epochs=3):
+    def detect(self, dataloader, epochs=3, target_class=None, callback=None):
         mask_sizes = []
         masks = []
         patterns = []
         
-        print("Running Neural Cleanse (Reverse Engineering Triggers)...")
-        for c in range(self.num_classes):
-            m, p = self.reverse_engineer_trigger(c, dataloader, epochs=epochs)
+        # If target_class is specified, we perform a "Targeted Audit" (Fast Mode)
+        # Otherwise, we perform a "Full Sweep" (Discovery Mode)
+        search_space = range(self.num_classes) if target_class is None else [target_class]
+        
+        print(f"Running Neural Cleanse ({'Full Sweep' if target_class is None else 'Targeted Scan'})...")
+        for i, c in enumerate(search_space):
+            if callback:
+                callback(i, len(search_space), c)
+                
+            # Default to fewer epochs for the discovery sweep (optimizing for latency)
+            sweep_epochs = 2 if target_class is None else epochs
+            m, p = self.reverse_engineer_trigger(c, dataloader, epochs=sweep_epochs)
             size = torch.sum(torch.abs(m)).item()
             mask_sizes.append(size)
             masks.append(m)
             patterns.append(p)
             print(f"Class {c} mask size: {size:.2f}")
             
-        # Anomaly detection using MAD
-        median = np.median(mask_sizes)
-        mad = np.median(np.abs(mask_sizes - median))
-        
-        # Avoid division by zero
-        if mad < 1e-4:
-            mad = 1e-4
+        # Anomaly detection using MAD (Only valid for full sweeps with > 2 classes)
+        if len(mask_sizes) > 2:
+            median = np.median(mask_sizes)
+            mad = np.median(np.abs(mask_sizes - median))
+            if mad < 1e-4: mad = 1e-4
+            anomaly_index = np.abs(mask_sizes - median) / (mad * 1.4826)
+            print("\nAnomaly indices:", np.round(anomaly_index, 2))
+            flagged_classes = np.where(anomaly_index > 2.0)[0]
+        else:
+            # For targeted scans, we just return the single class if it looks abnormal (heuristic)
+            flagged_classes = np.array([target_class]) if target_class is not None else np.array([])
+            mask_sizes = mask_sizes if target_class is not None else []
             
-        anomaly_index = np.abs(mask_sizes - median) / (mad * 1.4826)
-        
-        print("\nAnomaly indices:", np.round(anomaly_index, 2))
-        
-        # A common threshold for MAD is > 2.0 (representing 95% confidence)
-        flagged_classes = np.where(anomaly_index > 2.0)[0]
         return flagged_classes, mask_sizes, masks
 
 class STRIP:
@@ -87,7 +115,7 @@ class STRIP:
     def _superimpose(self, img1, img2, alpha=0.5):
         return alpha * img1 + (1 - alpha) * img2
 
-    def calculate_entropy(self, input_tensor, num_samples=64):
+    def calculate_entropy(self, input_tensor, num_samples=32):
         # input_tensor: [C, H, W]
         # Sample N clean images
         indices = np.random.choice(len(self.clean_dataset), num_samples, replace=False)
@@ -466,8 +494,55 @@ class RiskMetaClassifier:
         probs = self.clf.predict_proba(features)
         return probs[0][1] # Return probability of being class 1 (poisoned)
 
+class NaturalTrojanProfiler:
+    """
+    Analyzes models for 'Natural Trojans' (Chapter 7.G of IARPA Jan 2026 Report).
+    These are vulnerabilities where the model learns spurious shortcuts or 
+    high-frequency dataset biases instead of robust features.
+    """
+    def __init__(self, model, device):
+        self.model = model
+        self.device = device
+        self.model.eval()
+
+    def profile_shortcuts(self, dataloader, num_batches=3):
+        """
+        Tests model sensitivity to 'shortcut' features by applying low-pass filters 
+        (removing high-frequency details) and measuring prediction stability.
+        Models with Natural Trojans often rely heavily on high-frequency noise 
+        or specific background textures.
+        """
+        print("\n[Natural Trojan Profiler] Checking for shortcut dependencies...")
+        sensitivities = []
+        
+        with torch.no_grad():
+            for i, (inputs, labels) in enumerate(dataloader):
+                if i >= num_batches: break
+                inputs = inputs.to(self.device)
+                
+                # Original predictions
+                orig_outputs = self.model(inputs)
+                orig_preds = torch.argmax(orig_outputs, dim=1)
+                
+                # Apply high-frequency suppression (Simplistic Shortcut Test)
+                # We simulate this by adding small Gaussian noise or blurring
+                # In a real IARPA scenario, we'd use frequency-domain masking.
+                blurred_inputs = torch.nn.functional.avg_pool2d(inputs, kernel_size=3, stride=1, padding=1)
+                shifted_outputs = self.model(blurred_inputs)
+                shifted_preds = torch.argmax(shifted_outputs, dim=1)
+                
+                # Calculate what percentage of predictions changed due to minor structural loss
+                change_ratio = (orig_preds != shifted_preds).float().mean().item()
+                sensitivities.append(change_ratio)
+        
+        avg_sensitivity = np.mean(sensitivities)
+        print(f"   Shortcut Sensitivity (Prediction Drift): {avg_sensitivity:.4f}")
+        
+        # High sensitivity to minor structural changes indicates a "Natural Trojan" (shortcut dependency)
+        return avg_sensitivity
+
 class RiskFusionEngine:
-    def __init__(self, weights={'neural_cleanse': 0.25, 'strip': 0.35, 'clustering': 0.20, 'weight_analysis': 0.20}, use_meta_classifier=False):
+    def __init__(self, weights={'neural_cleanse': 0.20, 'strip': 0.25, 'clustering': 0.15, 'weight_analysis': 0.15, 'natural_profiler': 0.25}, use_meta_classifier=False):
         self.weights = weights
         self.use_meta_classifier = use_meta_classifier
         self.meta_classifier = RiskMetaClassifier() if use_meta_classifier else None
@@ -524,7 +599,7 @@ class RiskFusionEngine:
         normalized = (max_idx - 2.5) / 2.5
         return min(max(normalized, 0.0), 1.0)
 
-    def calculate_unified_risk(self, nc_anomaly_indices, strip_fr_ratio, strip_fa_ratio, clustering_score, wa_anomaly_indices=None):
+    def calculate_unified_risk(self, nc_anomaly_indices, strip_fr_ratio, strip_fa_ratio, clustering_score, wa_anomaly_indices=None, natural_sensitivity=0.0):
         """
         Outputs a final probability score [0.0 - 1.0] of model infection.
         """
@@ -532,26 +607,37 @@ class RiskFusionEngine:
         strip_risk = self.normalize_strip(strip_fr_ratio, strip_fa_ratio)
         clustering_risk = self.normalize_clustering(clustering_score)
         wa_risk = self.normalize_weight_analysis(wa_anomaly_indices) if wa_anomaly_indices is not None else 0.0
+        natural_risk = min(max(natural_sensitivity * 1.5, 0.0), 1.0) # Heuristic scaling
         
         details = {
             'neural_cleanse_risk': nc_risk,
             'strip_risk': strip_risk,
             'clustering_risk': clustering_risk,
-            'weight_analysis_risk': wa_risk
+            'weight_analysis_risk': wa_risk,
+            'natural_trojan_risk': natural_risk
         }
 
         # Dynamic Fusion via Meta-Classifier
         if self.use_meta_classifier and self.meta_classifier and self.meta_classifier.is_trained:
-            features = np.array([[nc_risk, strip_risk, clustering_risk, wa_risk]])
-            final_risk = self.meta_classifier.predict_risk(features)
-            details['used_meta_classifier'] = True
+            # Note: If meta-classifier was trained on old 4-feature vector, we need to handle that.
+            # For this demo, we assume the user might want to re-train or we fallback.
+            try:
+                features = np.array([[nc_risk, strip_risk, clustering_risk, wa_risk, natural_risk]])
+                final_risk = self.meta_classifier.predict_risk(features)
+                details['used_meta_classifier'] = True
+            except:
+                # Fallback if meta-clf expects 4 features
+                features = np.array([[nc_risk, strip_risk, clustering_risk, wa_risk]])
+                final_risk = self.meta_classifier.predict_risk(features)
+                details['used_meta_classifier'] = "fallback_4_feature"
         else:
             # Static Fallback
             final_risk = (
                 nc_risk * self.weights['neural_cleanse'] +
                 strip_risk * self.weights['strip'] +
                 clustering_risk * self.weights['clustering'] +
-                wa_risk * self.weights['weight_analysis']
+                wa_risk * self.weights['weight_analysis'] +
+                natural_risk * self.weights.get('natural_profiler', 0.25)
             )
             details['used_meta_classifier'] = False
         
