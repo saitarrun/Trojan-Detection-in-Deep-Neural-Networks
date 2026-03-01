@@ -6,3 +6,13 @@ data/
 .DS_Store
 sample_external_models/
 *.log
+*.pth
+*.pt
+final_test_zoo/
+uploads/
+test_uploads/
+real_world_mystery_set/
+mystery_test_set/
+sample_trojai_models/
+training_zoo/
+meta_classifier.pkl

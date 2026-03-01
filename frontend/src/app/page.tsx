@@ -12,17 +12,19 @@ import {
   CheckCircle2,
   AlertTriangle,
   Loader2,
-  RefreshCcw,
   Search,
   Download,
-  AlertOctagon
+  ShieldCheck,
+  Server,
+  Database,
+  Cpu,
+  BarChart3
 } from 'lucide-react';
 
 // API Configuration
-const API_BASE = ""; // Next.js proxy for status/reports
+const API_BASE = "";
+
 export default function Dashboard() {
-
-
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [targetClass, setTargetClass] = useState("-1");
   const [triggerType, setTriggerType] = useState("Auto-Detect (Black-Box)");
@@ -33,7 +35,6 @@ export default function Dashboard() {
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Trigger Types listing
   const triggerOptions = [
     "Auto-Detect (Black-Box)",
     "checkerboard",
@@ -73,25 +74,22 @@ export default function Dashboard() {
     const fetchUrl = `${directApiBase}/api/v1/scan-model`;
 
     try {
-      console.log(`[STABLE-v2.1.2] Bypassing Proxy. Targeted Internal Port 8000: ${fetchUrl}`);
       const response = await fetch(fetchUrl, {
         method: 'POST',
         body: formData,
         cache: 'no-store'
       });
 
-      if (!response.ok) throw new Error("Failed to submit model for scanning.");
+      if (!response.ok) throw new Error("Audit initiation failed.");
 
       const data = await response.json();
       setTaskId(data.task_id);
-      setScanStatus("ACCEPTED");
     } catch (err: any) {
       setError(err.message);
       setIsScanning(false);
     }
   };
 
-  // Polling logic
   useEffect(() => {
     if (!taskId || !isScanning) return;
 
@@ -112,7 +110,7 @@ export default function Dashboard() {
           setProgress(100);
           clearInterval(interval);
         } else if (data.status === 'FAILURE') {
-          setError(data.message || "Scan failed.");
+          setError(data.message || "Audit failed.");
           setIsScanning(false);
           setTaskId(null);
           clearInterval(interval);
@@ -126,27 +124,23 @@ export default function Dashboard() {
   }, [taskId, isScanning]);
 
   const downloadReport = async () => {
-    if (!result || !result.task_id) {
-      // Fallback if task_id isn't in result (it should be in scanStatus check though)
-      if (!taskId && !result.task_id) return;
-    }
-    const id = result.task_id || taskId;
+    const id = result?.task_id || taskId;
+    if (!id) return;
     try {
       const response = await fetch(`${API_BASE}/api/v1/audit-report/${id}`);
       if (!response.ok) throw new Error("Failed to generate report.");
       const data = await response.json();
-
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Gemini_IARPA_Audit_${id}.json`;
+      a.download = `Gemini_Audit_${id.substring(0, 8)}.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
-      alert("Error exporting report: " + err.message);
+      alert("Error: " + err.message);
     }
   };
 
@@ -155,16 +149,22 @@ export default function Dashboard() {
     const isComplete = status === 'complete';
 
     return (
-      <div className={`step-item ${isActive ? 'active' : ''} ${isComplete ? 'complete' : ''}`}>
-        <div className="step-marker-container">
-          <div className="step-marker">
-            {isComplete ? <CheckCircle2 size={16} /> : (isActive ? <Loader2 className="animate-spin" size={16} /> : <div className="dot" />)}
+      <div className={`step-item ${isActive ? 'active' : ''} ${isComplete ? 'complete' : ''}`} style={{ opacity: isActive ? 1 : (isComplete ? 0.7 : 0.2) }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '24px' }}>
+          <div className={`pulsate`} style={{
+            width: '24px', height: '24px', borderRadius: '50%',
+            background: isComplete ? 'var(--success)' : (isActive ? 'var(--accent)' : 'rgba(255,255,255,0.05)'),
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            border: `1px solid ${isComplete ? 'var(--success)' : (isActive ? 'var(--accent)' : 'var(--card-border)')}`,
+            animation: isActive ? 'pulse-ring 2s infinite' : 'none'
+          }}>
+            {isComplete ? <CheckCircle2 size={14} color="white" /> : (isActive ? <Loader2 className="animate-spin" size={14} color="white" /> : <div style={{ width: '4px', height: '4px', background: 'rgba(255,255,255,0.3)', borderRadius: '50%' }} />)}
           </div>
-          <div className="step-line"></div>
+          <div style={{ width: '1px', height: '24px', background: 'var(--card-border)', margin: '4px 0' }}></div>
         </div>
-        <div className="step-text-container">
-          <p className="step-label">{label}</p>
-          {subtext && isActive && <p className="step-subtext">{subtext}</p>}
+        <div style={{ paddingBottom: '1.5rem', marginLeft: '1rem' }}>
+          <p style={{ fontWeight: 700, fontSize: '0.9rem', color: isActive ? '#fff' : '#64748b' }}>{label}</p>
+          {subtext && isActive && <p style={{ fontSize: '0.7rem', color: 'var(--accent)', marginTop: '0.2rem', fontWeight: 500 }}>{subtext}</p>}
         </div>
       </div>
     );
@@ -172,7 +172,6 @@ export default function Dashboard() {
 
   const getStepStatus = (stepName: string) => {
     const msg = scanStatus.toUpperCase();
-
     const steps = [
       { id: 'INIT', keys: ['INITIALIZING', 'LOADING'] },
       { id: 'NC', keys: ['NEURAL CLEANSE', 'TRIGGER'] },
@@ -181,10 +180,8 @@ export default function Dashboard() {
       { id: 'LWA', keys: ['WEIGHT ANALYSIS', 'LINEAR'] },
       { id: 'FUSION', keys: ['FUSION', 'RISK'] }
     ];
-
     const currentIdx = steps.findIndex(s => s.keys.some(k => msg.includes(k)));
     const stepIdx = steps.findIndex(s => s.id === stepName);
-
     if (currentIdx === -1 && msg === 'ACCEPTED') return stepIdx === 0 ? 'active' : 'pending';
     if (currentIdx === -1) return 'pending';
     if (stepIdx < currentIdx) return 'complete';
@@ -194,42 +191,34 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard-container">
-      {/* Sidebar Content */}
-      <aside className="sidebar glass">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-          <div className="status-ring pulsate" style={{ background: 'var(--accent)' }}></div>
-          <h2 className="title-gradient" style={{ fontSize: '1.25rem', fontWeight: 800 }}>GEMINI CORE</h2>
+      <aside className="sidebar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+          <div className="pulsate" style={{ width: '12px', height: '12px', borderRadius: '50%', background: 'var(--accent)' }}></div>
+          <h2 className="title-gradient" style={{ fontSize: '1.4rem', fontWeight: 900, letterSpacing: '-0.02em' }}>GEMINI CORE</h2>
         </div>
 
-        <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="stagger-1" style={{ display: 'flex', flexDirection: 'column', gap: '1.8rem' }}>
           <div>
             <label className="label">Neural Model Source</label>
             <div
-              className="input-field"
-              style={{ border: '2px dashed var(--card-border)', padding: '1.5rem', textAlign: 'center', cursor: 'pointer', position: 'relative' }}
+              className="glass-hover"
+              style={{
+                marginTop: '0.6rem', border: '2px dashed var(--card-border)', padding: '2rem 1.5rem',
+                textAlign: 'center', cursor: 'pointer', borderRadius: '16px', transition: 'all 0.3s ease'
+              }}
               onClick={() => document.getElementById('file-upload')?.click()}
             >
-              <Upload size={24} style={{ color: 'var(--accent)', marginBottom: '0.5rem' }} />
-              <p style={{ fontSize: '0.8rem', color: '#a0a0b0' }}>
-                {selectedFile ? selectedFile.name : "Click to upload .pth or .onnx"}
+              <Upload size={28} style={{ color: 'var(--accent)', marginBottom: '0.75rem', opacity: 0.8 }} />
+              <p style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 500 }}>
+                {selectedFile ? selectedFile.name : "Drop .pth or .onnx bundle"}
               </p>
-              <input
-                id="file-upload"
-                type="file"
-                style={{ display: 'none' }}
-                onChange={handleFileChange}
-                accept=".pth,.onnx"
-              />
+              <input id="file-upload" type="file" style={{ display: 'none' }} onChange={handleFileChange} accept=".pth,.onnx" />
             </div>
           </div>
 
           <div>
             <label className="label">Target Class Strategy</label>
-            <select
-              className="input-field"
-              value={targetClass}
-              onChange={(e) => setTargetClass(e.target.value)}
-            >
+            <select className="input-field" value={targetClass} onChange={(e) => setTargetClass(e.target.value)}>
               <option value="-1">Auto-Detect (Black-Box)</option>
               {[...Array(10)].map((_, i) => (
                 <option key={i} value={i}>Class {i}</option>
@@ -239,116 +228,122 @@ export default function Dashboard() {
 
           <div>
             <label className="label">Trigger Heuristic</label>
-            <select
-              className="input-field"
-              value={triggerType}
-              onChange={(e) => setTriggerType(e.target.value)}
-            >
+            <select className="input-field" value={triggerType} onChange={(e) => setTriggerType(e.target.value)}>
               {triggerOptions.map(opt => (
                 <option key={opt} value={opt}>{opt}</option>
               ))}
             </select>
           </div>
 
-          <button
-            className="button-primary"
-            style={{ marginTop: '1rem', width: '100%' }}
-            onClick={startScan}
-            disabled={!selectedFile || isScanning}
-          >
-            {isScanning ? <Loader2 className="animate-spin" size={20} /> : <Zap size={20} />}
-            {isScanning ? "Auditing Network..." : "Execute Enterprise Audit"}
+          <button className="button-primary" onClick={startScan} disabled={!selectedFile || isScanning} style={{ width: '100%', marginTop: '0.5rem' }}>
+            {isScanning ? <Loader2 className="animate-spin" size={20} /> : <Zap size={20} className="fill-current" />}
+            {isScanning ? "Scrutinizing..." : "Execute Enterprise Audit"}
           </button>
         </div>
 
-        <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--card-border)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.7rem', color: '#666' }}>VERSION 2.1.2-STABLE</span>
-            <Shield size={14} style={{ color: '#444' }} />
+        <div style={{ marginTop: 'auto', paddingTop: '1.5rem', borderTop: '1px solid var(--card-border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: 0.5 }}>
+            <span style={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '1px' }}>V2.2.0 ENTERPRISE</span>
+            <ShieldCheck size={16} />
           </div>
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <main className="main-content">
-        <header style={{ marginBottom: '3rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div className="fade-in">
-            <h1 style={{ fontSize: '2.5rem', fontWeight: 900, marginBottom: '0.5rem' }}>MLOps Command Center</h1>
-            <p style={{ color: '#a0a0b0', maxWidth: '600px' }}>
-              Advanced Neural Trojan Auditing & Forensic Sanitization Pipeline. Deployment-grade security for mission-critical vision models.
+        <header style={{ marginBottom: '4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div className="stagger-1">
+            <h1 style={{ fontSize: '3rem', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1.1, marginBottom: '0.75rem' }}>
+              MLOps Command Center
+            </h1>
+            <p style={{ color: '#94a3b8', maxWidth: '650px', fontSize: '1.05rem', lineHeight: 1.6 }}>
+              Automated Forensic Audit Pipeline for Mission-Critical Vision Models.
+              Powered by <span style={{ color: 'var(--accent)', fontWeight: 600 }}>RiskFusionEngine™</span>.
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            <div className="glass" style={{ padding: '0.75rem 1.25rem', borderRadius: '12px', textAlign: 'center' }}>
-              <p className="label" style={{ fontSize: '0.6rem' }}>Pipeline Status</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.2rem' }}>
-                <Activity size={14} style={{ color: 'var(--success)' }} />
-                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--success)' }}>OPERATIONAL</span>
+          <div className="stagger-2" style={{ display: 'flex', gap: '1.2rem' }}>
+            <div className="card glass" style={{ padding: '0.8rem 1.4rem', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+              <p className="label" style={{ fontSize: '0.6rem', marginBottom: '0.4rem' }}>Infrastructure</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <Server size={14} color="var(--success)" />
+                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--success)' }}>STABLE</span>
               </div>
             </div>
-            <div className="glass" style={{ padding: '0.75rem 1.25rem', borderRadius: '12px', textAlign: 'center', border: '1px solid rgba(138, 43, 226, 0.3)' }}>
-              <p className="label" style={{ fontSize: '0.6rem' }}>Analysis Engine</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.2rem' }}>
-                <Zap size={14} style={{ color: 'var(--accent)' }} />
-                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--accent)' }}>DIRECT CORE</span>
+            <div className="card glass" style={{ padding: '0.8rem 1.4rem', border: '1px solid var(--accent-glow)' }}>
+              <p className="label" style={{ fontSize: '0.6rem', marginBottom: '0.4rem' }}>Audit Mode</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <Database size={14} color="var(--accent)" />
+                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--accent)' }}>DEEP SCAN</span>
               </div>
             </div>
           </div>
         </header>
 
         {error && (
-          <div className="card fade-in" style={{ background: 'rgba(255, 118, 117, 0.1)', border: '1px solid var(--danger)' }}>
-            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-              <AlertTriangle style={{ color: 'var(--danger)' }} />
+          <div className="card stagger-1" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger)', marginBottom: '3rem' }}>
+            <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center' }}>
+              <div style={{ padding: '0.75rem', borderRadius: '12px', background: 'var(--danger)' }}>
+                <AlertTriangle color="white" size={24} />
+              </div>
               <div>
-                <p style={{ fontWeight: 'bold', color: 'var(--danger)' }}>Audit Interrupted</p>
-                <p style={{ fontSize: '0.9rem', opacity: 0.8 }}>{error}</p>
+                <p style={{ fontWeight: 800, color: '#fff', fontSize: '1rem' }}>Audit Execution Interrupted</p>
+                <p style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.7)', marginTop: '0.2rem' }}>{error}</p>
               </div>
             </div>
           </div>
         )}
 
         {!isScanning && !result && !error && (
-          <div className="fade-in" style={{ textAlign: 'center', marginTop: '10rem', opacity: 0.5 }}>
-            <Search size={64} style={{ margin: '0 auto 1.5rem', color: '#333' }} />
-            <h3 style={{ fontSize: '1.2rem', color: '#fff' }}>No Active Audit</h3>
-            <p>Upload a model and configure parameters to begin scanning.</p>
+          <div className="stagger-3" style={{ textAlign: 'center', marginTop: '8rem', padding: '4rem', opacity: 0.4 }}>
+            <div style={{ position: 'relative', width: '80px', height: '80px', margin: '0 auto 2rem' }}>
+              <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'var(--accent)', opacity: 0.1, animation: 'pulse-ring 2s infinite' }}></div>
+              <Search size={80} style={{ position: 'relative', color: '#334155' }} />
+            </div>
+            <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#fff', marginBottom: '0.75rem' }}>No Active Scrutiny</h3>
+            <p style={{ fontSize: '1rem' }}>Deploy a neural bundle to initialize forensic diagnostics.</p>
           </div>
         )}
 
         {isScanning && (
-          <div className="fade-in">
-            <div className="card glass" style={{ border: '1px solid rgba(138, 43, 226, 0.2)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <Activity size={24} style={{ color: 'var(--accent)' }} />
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Orchestrating Audit Pipeline</h3>
+          <div className="stagger-1">
+            <div className="card glass" style={{ border: '1px solid rgba(99, 102, 241, 0.2)', padding: '2.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ background: 'var(--accent)', padding: '0.75rem', borderRadius: '14px' }}>
+                    <Cpu size={28} color="white" />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '1.4rem', fontWeight: 800 }}>Orchestrating Forensic Pipeline</h3>
+                    <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>System-level audit of model tensors and latent activations.</p>
+                  </div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <span className="badge badge-warning" style={{ marginBottom: '0.2rem', display: 'inline-block' }}>{progress}% COMPLETE</span>
-                  <p style={{ fontSize: '0.7rem', color: '#666', fontWeight: 600, letterSpacing: '0.05em' }}>SESSION: {taskId?.substring(0, 8)}</p>
+                  <span className="badge badge-warning" style={{ fontSize: '0.8rem', padding: '0.5rem 1.2rem' }}>{progress}% ANALYZED</span>
+                  <p style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 800, marginTop: '0.6rem', letterSpacing: '1px' }}>ID: {taskId?.substring(0, 12)}</p>
                 </div>
               </div>
 
-              <div className="audit-stepper">
-                <AuditStep label="Model Initialization" status={getStepStatus('INIT')} subtext="Decoupling model tensors and loading validation sets..." />
-                <AuditStep label="Neural Cleanse" status={getStepStatus('NC')} subtext={scanStatus} />
-                <AuditStep label="STRIP Analysis" status={getStepStatus('STRIP')} subtext="Perturbing inputs for entropy entropy cross-verification..." />
-                <AuditStep label="Activation Clustering" status={getStepStatus('AC')} subtext="Scanning latent space for artificial bifurcations..." />
-                <AuditStep label="Linear Weight Analysis" status={getStepStatus('LWA')} subtext="Auditing final layer for anomalous L2 norms..." />
-                <AuditStep label="Risk Fusion Engine" status={getStepStatus('FUSION')} subtext="Synchronizing telemetry into unified risk score..." />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <AuditStep label="Network Initialization" status={getStepStatus('INIT')} subtext="Decoupling model weights..." />
+                  <AuditStep label="Neural Inversion" status={getStepStatus('NC')} subtext={scanStatus} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <AuditStep label="STRIP Robustness" status={getStepStatus('STRIP')} />
+                  <AuditStep label="Activation Clustering" status={getStepStatus('AC')} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <AuditStep label="Linear Weight Audit" status={getStepStatus('LWA')} />
+                  <AuditStep label="Risk Fusion Execution" status={getStepStatus('FUSION')} />
+                </div>
               </div>
 
-              <div style={{ marginTop: '2rem', background: 'rgba(255,255,255,0.03)', height: '6px', borderRadius: '3px', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ marginTop: '2.5rem', background: 'rgba(255,255,255,0.03)', height: '10px', borderRadius: '5px', position: 'relative', overflow: 'hidden' }}>
                 <div
                   style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    height: '100%',
-                    background: 'linear-gradient(90deg, var(--accent), #8a2be2)',
-                    width: `${progress}%`,
+                    position: 'absolute', top: 0, left: 0, height: '100%',
+                    background: 'linear-gradient(90deg, var(--accent), var(--cyan))',
+                    width: `${progress}%`, borderRadius: '5px',
                     transition: 'width 1s cubic-bezier(0.4, 0, 0.2, 1)'
                   }}
                 />
@@ -358,203 +353,126 @@ export default function Dashboard() {
         )}
 
         {result && (
-          <div className="fade-in">
+          <div className="stagger-1">
             <div className="grid-cols-2">
-              {/* Left Column: Summary Metrics */}
-              <div>
-                <div className="card glass" style={{ borderLeft: `4px solid ${result.fusion_risk_score > 0.5 ? 'var(--danger)' : 'var(--success)'}` }}>
-                  <label className="label">Unified Trojan Risk Score</label>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '1rem', marginTop: '0.5rem' }}>
-                    <h2 style={{ fontSize: '4rem', fontWeight: 900 }}>{(result.fusion_risk_score * 100).toFixed(0)}%</h2>
-                    <span className={result.fusion_risk_score > 0.5 ? 'badge badge-danger' : 'badge badge-success'}>
-                      {result.fusion_risk_score > 0.5 ? 'CRITICAL RISK' : 'LOW RISK'}
-                    </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
+                <div className="card glass stagger-2" style={{ borderLeft: `6px solid ${result.fusion_risk_score > 0.5 ? 'var(--danger)' : 'var(--success)'}`, padding: '2.5rem' }}>
+                  <label className="label" style={{ marginBottom: '1rem', display: 'block' }}>Unified Trojan Integrity Score</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
+                    <h2 style={{ fontSize: '5.5rem', fontWeight: 900, lineHeight: 1, letterSpacing: '-0.05em' }}>
+                      {(result.fusion_risk_score * 100).toFixed(0)}<span style={{ fontSize: '2.5rem', opacity: 0.3 }}>%</span>
+                    </h2>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <span className={result.fusion_risk_score > 0.5 ? 'badge badge-danger' : 'badge badge-success'} style={{ fontSize: '0.85rem', padding: '0.6rem 1.5rem' }}>
+                        {result.fusion_risk_score > 0.5 ? 'CRITICAL RISK DETECTED' : 'DEEMED INTEGRITY SECURE'}
+                      </span>
+                      <p style={{ fontSize: '0.85rem', color: '#94a3b8', maxWidth: '180px', lineHeight: 1.4 }}>
+                        Weighted analysis of 5 cross-verified forensic signals.
+                      </p>
+                    </div>
                   </div>
-                  <p style={{ marginTop: '1rem', color: '#a0a0b0', fontSize: '0.9rem' }}>
-                    Calculated via RiskFusionEngine™ integrating Neural Cleanse, STRIP, and Weight Analysis telemetry.
-                  </p>
                 </div>
 
-                <div className="card glass">
-                  <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Activity size={20} style={{ color: 'var(--accent)' }} />
-                    Defense Telemetry
+                <div className="card glass stagger-3">
+                  <h3 style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.2rem', fontWeight: 800 }}>
+                    <BarChart3 size={22} color="var(--accent)" />
+                    Deep Telemetry Signatures
                   </h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.9rem' }}>STRIP Entropy Ratio</span>
-                      <span style={{ fontWeight: 600 }}>{result.details.strip_fr_ratio.toFixed(4)}</span>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      <div className="telemetry-row">
+                        <p className="label" style={{ fontSize: '0.6rem' }}>STRIP Entropy</p>
+                        <p style={{ fontSize: '1.2rem', fontWeight: 700, marginTop: '0.2rem' }}>{result.details.strip_fr_ratio.toFixed(4)}</p>
+                      </div>
+                      <div className="telemetry-row">
+                        <p className="label" style={{ fontSize: '0.6rem' }}>AC Silhouette</p>
+                        <p style={{ fontSize: '1.2rem', fontWeight: 700, marginTop: '0.2rem' }}>{result.details.clustering_silhouette_score.toFixed(4)}</p>
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.9rem' }}>AC Silhouette Score</span>
-                      <span style={{ fontWeight: 600 }}>{result.details.clustering_silhouette_score.toFixed(4)}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.9rem' }}>Neural Cleanse Flag</span>
-                      <span className={result.details.nc_flagged_classes.length > 0 ? 'text-danger' : 'text-success'}>
-                        {result.details.nc_flagged_classes.length > 0 ? `Target Class ${result.details.nc_flagged_classes[0]}` : 'None'}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.9rem' }}>Natural Trojan Profiling</span>
-                      <span className={result.details.natural_trojan_risk > 0.4 ? 'text-warning' : 'text-success'} style={{ fontWeight: 600 }}>
-                        {(result.details.natural_trojan_risk * 100).toFixed(1)}% Bias
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.9rem' }}>Weight Anomaly L2</span>
-                      <span style={{ fontWeight: 600 }}>
-                        {result.details.weight_analysis_risk.toFixed(4)}
-                      </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      <div className="telemetry-row">
+                        <p className="label" style={{ fontSize: '0.6rem' }}>Weight Anomaly</p>
+                        <p style={{ fontSize: '1.2rem', fontWeight: 700, marginTop: '0.2rem' }}>{result.details.weight_analysis_risk.toFixed(4)}</p>
+                      </div>
+                      <div className="telemetry-row">
+                        <p className="label" style={{ fontSize: '0.6rem' }}>Natural Bias</p>
+                        <p style={{ fontSize: '1.2rem', fontWeight: 700, marginTop: '0.2rem', color: result.details.natural_trojan_risk > 0.4 ? 'var(--warning)' : 'inherit' }}>
+                          {(result.details.natural_trojan_risk * 100).toFixed(1)}%
+                        </p>
+                      </div>
                     </div>
                   </div>
 
-                  <button
-                    className="button-secondary"
-                    style={{ marginTop: '2rem', width: '100%', border: '1px solid var(--card-border)', gap: '0.5rem' }}
-                    onClick={downloadReport}
-                  >
+                  <div style={{ marginTop: '2.5rem', padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '14px', border: '1px solid var(--card-border)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <p className="label" style={{ fontSize: '0.6rem' }}>Neural Cleanse Result</p>
+                        <p style={{ fontSize: '0.95rem', fontWeight: 700, marginTop: '0.3rem', color: result.details.nc_flagged_classes.length > 0 ? 'var(--danger)' : 'var(--success)' }}>
+                          {result.details.nc_flagged_classes.length > 0 ? `Flagged Target: Class ${result.details.nc_flagged_classes[0]}` : 'No Trigger Signatures Recorded'}
+                        </p>
+                      </div>
+                      <ShieldCheck size={24} color={result.details.nc_flagged_classes.length > 0 ? 'var(--danger)' : 'var(--success)'} style={{ opacity: 0.5 }} />
+                    </div>
+                  </div>
+
+                  <button className="button-primary stagger-4" style={{ marginTop: '2.5rem', width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--card-border)', boxShadow: 'none' }} onClick={downloadReport}>
                     <Download size={18} />
-                    Export IARPA-Audit Report
+                    Export Forensic IARPA-Audit Report
                   </button>
                 </div>
               </div>
 
-              {/* Right Column: Visualizations */}
-              <div className="card glass">
-                <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Layout size={20} style={{ color: 'var(--accent)' }} />
-                  Mechanistic Interpretability
-                </h3>
+              <div className="card glass stagger-2" style={{ padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ padding: '2rem', borderBottom: '1px solid var(--card-border)' }}>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.2rem', fontWeight: 800 }}>
+                    <Layout size={22} color="var(--accent)" />
+                    Mechanistic Interpretability
+                  </h3>
+                </div>
 
-                {result.gradcam_heatmap_b64 ? (
-                  <div style={{ borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--card-border)' }}>
-                    <img
-                      src={`data:image/png;base64,${result.gradcam_heatmap_b64}`}
-                      alt="Grad-CAM Heatmap"
-                      style={{ width: '100%', display: 'block' }}
-                    />
-                    <div style={{ padding: '1rem', background: 'rgba(0,0,0,0.5)', fontSize: '0.8rem', color: '#a0a0b0' }}>
-                      Grad-CAM Heatmap showing model activation regions for Target Class. High intensity regions may indicate trigger localization.
+                <div style={{ flex: 1, minHeight: '400px', padding: '2.5rem', position: 'relative' }}>
+                  {result.gradcam_heatmap_b64 ? (
+                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                      <div style={{ border: '1px solid var(--card-border)', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
+                        <img src={`data:image/png;base64,${result.gradcam_heatmap_b64}`} alt="Grad-CAM" style={{ width: '100%', display: 'block' }} />
+                      </div>
+                      <div className="card" style={{ background: 'rgba(0,0,0,0.3)', border: '1px dashed var(--card-border)', padding: '1.5rem' }}>
+                        <p style={{ fontSize: '0.85rem', color: '#94a3b8', lineHeight: 1.6 }}>
+                          <span style={{ color: '#fff', fontWeight: 600, display: 'block', marginBottom: '0.4rem' }}>Spatial Saliency Audit</span>
+                          Visual telemetry highlighting localized tensor activations. High-intensity convergence areas often correlate to pixel-space Trojan backdoors.
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div style={{ height: '300px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px dashed var(--card-border)' }}>
-                    <Activity size={48} style={{ color: '#222', marginBottom: '1rem' }} />
-                    <p style={{ color: '#444' }}>Visual telemetry not generated for this model.</p>
-                  </div>
-                )}
+                  ) : (
+                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', opacity: 0.2 }}>
+                      <Activity size={64} style={{ marginBottom: '1.5rem' }} />
+                      <p style={{ fontWeight: 700 }}>Visual telemetry offline for this architecture.</p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         )}
       </main>
 
-  // Global styles for Stepper & Animations
       <style jsx global>{`
-    .animate-spin {
-      animation: spin 1s linear infinite;
-    }
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-    .text-danger { color: var(--danger); }
-    .text-success { color: var(--success); }
+        .animate-spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        
+        @keyframes pulse-ring {
+          0% { transform: scale(1); box-shadow: 0 0 0 0 var(--accent-glow); }
+          70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
+          100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+        }
 
-    .audit-stepper {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-    }
-
-    .step-item {
-      display: flex;
-      gap: 1.5rem;
-      opacity: 0.3;
-      transition: all 0.4s ease;
-    }
-
-    .step-item.active {
-      opacity: 1;
-      transform: translateX(10px);
-    }
-
-    .step-item.complete {
-      opacity: 0.7;
-    }
-
-    .step-marker-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      width: 20px;
-    }
-
-    .step-marker {
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.05);
-      border: 1px solid var(--card-border);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1;
-      color: var(--accent);
-      font-size: 0.7rem;
-    }
-
-    .step-item.active .step-marker {
-      background: var(--accent);
-      color: white;
-      border-color: var(--accent);
-      box-shadow: 0 0 15px var(--accent);
-    }
-
-    .step-item.complete .step-marker {
-      background: var(--success);
-      color: white;
-      border-color: var(--success);
-    }
-
-    .step-line {
-      flex: 1;
-      width: 2px;
-      background: var(--card-border);
-      margin: 4px 0;
-    }
-
-    .step-item:last-child .step-line {
-      display: none;
-    }
-
-    .step-item.complete .step-line {
-      background: var(--success);
-    }
-
-    .step-text-container {
-      padding-bottom: 1.5rem;
-    }
-
-    .step-label {
-      font-weight: 700;
-      font-size: 0.95rem;
-      color: #fff;
-    }
-
-    .step-subtext {
-      font-size: 0.75rem;
-      color: #a0a0b0;
-      margin-top: 0.2rem;
-      animation: fadeIn 0.3s ease;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(-5px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-  `}</style>
+        .telemetry-row {
+          padding-left: 1rem;
+          border-left: 2px solid var(--card-border);
+          transition: all 0.3s ease;
+        }
+        .telemetry-row:hover { border-left-color: var(--accent); }
+      `}</style>
     </div>
   );
 }

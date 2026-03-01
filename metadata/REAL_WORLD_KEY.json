@@ -1,0 +1,52 @@
+{
+    "real_world_unknown_9315.pth": {
+        "original_architecture": "mobilenet_v2",
+        "status": "POISONED",
+        "trigger_simulation": "polygon"
+    },
+    "real_world_unknown_5722.pth": {
+        "original_architecture": "vgg16",
+        "status": "CLEAN",
+        "trigger_simulation": "none"
+    },
+    "real_world_unknown_1253.pth": {
+        "original_architecture": "shufflenet_v2_x1_0",
+        "status": "CLEAN",
+        "trigger_simulation": "none"
+    },
+    "real_world_unknown_7198.pth": {
+        "original_architecture": "squeezenet1_1",
+        "status": "POISONED",
+        "trigger_simulation": "blending"
+    },
+    "real_world_unknown_8876.pth": {
+        "original_architecture": "efficientnet_b0",
+        "status": "CLEAN",
+        "trigger_simulation": "none"
+    },
+    "real_world_unknown_7733.pth": {
+        "original_architecture": "densenet161",
+        "status": "POISONED",
+        "trigger_simulation": "polygon"
+    },
+    "real_world_unknown_4117.pth": {
+        "original_architecture": "inception_v3",
+        "status": "POISONED",
+        "trigger_simulation": "polygon"
+    },
+    "real_world_unknown_2799.pth": {
+        "original_architecture": "resnet101",
+        "status": "CLEAN",
+        "trigger_simulation": "none"
+    },
+    "real_world_unknown_1276.pth": {
+        "original_architecture": "googlenet",
+        "status": "POISONED",
+        "trigger_simulation": "polygon"
+    },
+    "real_world_unknown_1831.pth": {
+        "original_architecture": "wide_resnet50_2",
+        "status": "POISONED",
+        "trigger_simulation": "filter"
+    }
+}

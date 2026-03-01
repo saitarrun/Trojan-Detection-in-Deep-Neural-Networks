@@ -1,0 +1,62 @@
+{
+    "unknown_model_9209.pth": {
+        "index": 1,
+        "status": "POISONED",
+        "trigger_type": "square",
+        "architecture": "resnet50"
+    },
+    "unknown_model_3013.pth": {
+        "index": 2,
+        "status": "CLEAN",
+        "trigger_type": "none",
+        "architecture": "resnet18"
+    },
+    "unknown_model_4863.pth": {
+        "index": 3,
+        "status": "POISONED",
+        "trigger_type": "checkerboard",
+        "architecture": "densenet121"
+    },
+    "unknown_model_3945.pth": {
+        "index": 4,
+        "status": "POISONED",
+        "trigger_type": "blending",
+        "architecture": "densenet121"
+    },
+    "unknown_model_1172.pth": {
+        "index": 5,
+        "status": "CLEAN",
+        "trigger_type": "none",
+        "architecture": "densenet121"
+    },
+    "unknown_model_1876.pth": {
+        "index": 6,
+        "status": "POISONED",
+        "trigger_type": "square",
+        "architecture": "resnet50"
+    },
+    "unknown_model_1830.pth": {
+        "index": 7,
+        "status": "POISONED",
+        "trigger_type": "checkerboard",
+        "architecture": "resnet18"
+    },
+    "unknown_model_1678.pth": {
+        "index": 8,
+        "status": "POISONED",
+        "trigger_type": "checkerboard",
+        "architecture": "resnet50"
+    },
+    "unknown_model_3239.pth": {
+        "index": 9,
+        "status": "POISONED",
+        "trigger_type": "blending",
+        "architecture": "resnet50"
+    },
+    "unknown_model_8561.pth": {
+        "index": 10,
+        "status": "POISONED",
+        "trigger_type": "square",
+        "architecture": "densenet121"
+    }
+}
