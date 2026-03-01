@@ -16,7 +16,8 @@ st.title("🛡️ Gemini Enterprise MLOps Command Center")
 st.markdown("Automated Neural Trojan Auditing & Sanitization Pipeline")
 st.divider()
 
-FASTAPI_URL = "http://localhost:8000"
+FASTAPI_HOST = os.getenv("FASTAPI_HOST", "localhost")
+FASTAPI_URL = f"http://{FASTAPI_HOST}:8000"
 
 def determine_risk_level(score: float) -> str:
     if score > 0.75:
@@ -37,83 +38,126 @@ st.sidebar.header("Scan Configuration")
 upload_option = st.sidebar.radio("Model Source", ["Local Vault", "Upload External Model"])
 
 if upload_option == "Local Vault":
-    model_files = [f for f in os.listdir(model_dir) if f.endswith(".pth")]
+    model_files = [f for f in os.listdir(model_dir) if f.endswith(".pth") or f.endswith(".onnx")]
     selected_model_file = st.sidebar.selectbox("Select Model to Audit", model_files)
     model_path = os.path.join(model_dir, selected_model_file)
     uploaded_file = None
 else:
-    uploaded_file = st.sidebar.file_uploader("Upload PyTorch Model (.pth)", type=["pth", "pt"])
+    uploaded_file = st.sidebar.file_uploader("Upload PyTorch/ONNX Model", type=["pth", "pt", "onnx"])
     selected_model_file = uploaded_file.name if uploaded_file else "external_model.pth"
     model_path = None
     if uploaded_file is None:
         st.sidebar.info("Waiting for model upload...")
 
-trigger_type = st.sidebar.selectbox("Expected Trigger Type", ["checkerboard", "square", "blending", "clean_label", "dynamic", "instagram_filter", "spatial_conditional"])
-target_class = st.sidebar.number_input("Target Class to Audit", min_value=0, max_value=9, value=0)
+trigger_type_options = ["Auto-Detect (Black-Box)", "checkerboard", "square", "blending", "clean_label", "dynamic", "instagram_filter", "spatial_conditional"]
+trigger_type = st.sidebar.selectbox("Expected Trigger Type", trigger_type_options)
+
+target_class_options = ["Auto-Detect (Black-Box)"] + [str(i) for i in range(10)]
+target_class_str = st.sidebar.selectbox("Target Class to Audit", target_class_options)
+target_class = -1 if target_class_str == "Auto-Detect (Black-Box)" else int(target_class_str)
 
 if st.sidebar.button("🚀 Execute Enterprise Audit (via API)"):
     if upload_option == "Upload External Model" and uploaded_file is None:
-        st.sidebar.error("❌ Please upload a .pth file first!")
+        st.sidebar.error("❌ Please upload a model file first!")
     else:
-        with st.spinner("Connecting to FastAPI Scanning Engine..."):
+        with st.spinner("Submitting model to Asynchronous Queue..."):
             try:
-                # Check if API is alive
                 requests.get(f"{FASTAPI_URL}/health")
                 
-                # Prepare the files payload
                 if uploaded_file is not None:
-                    # Send bytes from the Streamlit UploadedFile directly to the API
                     files = {"model_file": (selected_model_file, uploaded_file.getvalue(), "application/octet-stream")}
                 else:
-                    # Read bytes from local disk to send to API
                     with open(model_path, "rb") as f:
                         file_bytes = f.read()
                     files = {"model_file": (selected_model_file, file_bytes, "application/octet-stream")}
                     
                 data = {"target_class": target_class, "trigger_type": trigger_type}
                 
+                # 1. Submit the Job
                 start_time = time.time()
                 response = requests.post(f"{FASTAPI_URL}/api/v1/scan-model", files=files, data=data)
-                end_time = time.time()
                 
                 if response.status_code == 200:
-                    result = response.json()
+                    task_info = response.json()
+                    task_id = task_info["task_id"]
+                    st.info(f"Job submitted successfully. Task ID: `{task_id}`")
                     
-                    st.subheader("Automated Scan Report")
-                    st.write(f"**Scan Duration:** {end_time - start_time:.2f} seconds")
+                    # 2. Poll for Completion
+                    status_placeholder = st.empty()
+                    progress_bar = st.progress(0)
                     
-                    # Display Fusion Score
-                    score = result["fusion_risk_score"]
-                    level = determine_risk_level(score)  # Need to use local function since we removed it from API response
+                    max_retries = 60 # 2 minutes max wait polling every 2s
+                    completed = False
                     
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("Unified Fusion Risk Score", f"{score * 100:.1f}%")
+                    for _ in range(max_retries):
+                        status_res = requests.get(f"{FASTAPI_URL}/api/v1/scan-status/{task_id}")
+                        if status_res.status_code == 200:
+                            status_data = status_res.json()
+                            status_text = status_data["status"]
+                            msg = status_data.get("message", "Processing...")
+                            
+                            if status_text == 'PENDING':
+                                status_placeholder.warning(f"⏳ {msg}")
+                                progress_bar.progress(10)
+                            elif status_text == 'PROGRESS':
+                                status_placeholder.info(f"🔄 {msg}")
+                                progress_bar.progress(50)
+                            elif status_text == 'SUCCESS':
+                                status_placeholder.success("✅ Scan Complete!")
+                                progress_bar.progress(100)
+                                result = status_data["result"]
+                                completed = True
+                                break
+                            elif status_text == 'FAILURE':
+                                status_placeholder.error(f"❌ Scan Failed: {status_data.get('error')}")
+                                progress_bar.progress(100)
+                                break
+                                
+                        time.sleep(2.0)
                         
-                        if "CRITICAL" in level:
-                            st.error(f"🚨 {level}")
-                            st.progress(score)
-                        elif "WARNING" in level:
-                            st.warning(f"⚠️ {level}")
-                            st.progress(score)
-                        else:
-                            st.success(f"✅ {level}")
-                            st.progress(score)
+                    if not completed:
+                        if status_text != 'FAILURE':
+                            st.error("Scan timed out or is taking too long. Please check the server logs.")
+                    else:
+                        end_time = time.time()
+                        st.subheader("Automated Scan Report")
+                        st.write(f"**Scan Duration (including queue):** {end_time - start_time:.2f} seconds")
+                        
+                        # Display Fusion Score
+                        score = result.get("fusion_risk_score", 0.0)
+                        level = determine_risk_level(score)
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Unified Fusion Risk Score", f"{score * 100:.1f}%")
                             
-                        with st.expander("View Raw Scanner Metrics"):
-                            st.json(result["details"])
-                            
-                    with col2:
-                        st.subheader("Mechanistic Interpretability")
-                        if result.get("gradcam_heatmap_b64"):
-                            heatmap_bytes = base64.b64decode(result["gradcam_heatmap_b64"])
-                            st.image(heatmap_bytes, caption="Grad-CAM Activation Heatmap", use_container_width=True)
-                            st.caption("Visualizes the final convolutional layer's activation patterns. Anomalous high-activation regions often correlate with spatial Trojan triggers.")
-                        else:
-                            st.info("No Grad-CAM heatmap generated (Layer not found or error).")
-                            
+                            if "CRITICAL" in level:
+                                st.error(f"🚨 {level}")
+                                st.progress(score)
+                            elif "WARNING" in level:
+                                st.warning(f"⚠️ {level}")
+                                st.progress(score)
+                            else:
+                                st.success(f"✅ {level}")
+                                st.progress(score)
+                                
+                            with st.expander("View Raw Scanner Metrics"):
+                                st.json(result.get("details", {}))
+                                
+                            if result.get("is_onnx", False):
+                                st.info("ℹ️ Model was ingested and analyzed dynamically via ONNX.")
+                                
+                        with col2:
+                            st.subheader("Mechanistic Interpretability")
+                            if result.get("gradcam_heatmap_b64"):
+                                heatmap_bytes = base64.b64decode(result.get("gradcam_heatmap_b64"))
+                                st.image(heatmap_bytes, caption="Grad-CAM Activation Heatmap", use_container_width=True)
+                                st.caption("Visualizes the final convolutional layer's activation patterns.")
+                            else:
+                                st.info("No Grad-CAM heatmap generated (Layer not found or error).")
+                                
                 else:
-                    st.error(f"API Error: {response.text}")
+                    st.error(f"API Error submitting scan: {response.text}")
                 
             except requests.exceptions.ConnectionError:
                 st.error(f"❌ Could not connect to the Backend Engine at {FASTAPI_URL}. Is the FastAPI server running?")

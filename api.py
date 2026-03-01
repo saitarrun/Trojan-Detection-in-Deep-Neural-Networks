@@ -17,8 +17,18 @@ from models import get_resnet18
 from dataset import get_cifar10_dataloaders
 from defenses import NeuralCleanse, STRIP, ActivationClustering, RiskFusionEngine, WeightAnalysis
 from gradcam_utils import GradCAM
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Gemini Trojan Detection API", description="Enterprise MLOps API for auditing Deep Neural Networks for Trojans.")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class ScanResponse(BaseModel):
     status: str
@@ -35,119 +45,141 @@ def determine_risk_level(score: float) -> str:
     else:
         return "SAFE (Cleared for Production)"
 
-@app.post("/api/v1/scan-model", response_model=ScanResponse)
-async def scan_model(
+class AsyncScanResponse(BaseModel):
+    status: str
+    task_id: str
+    message: str
+
+@app.post("/api/v1/scan-model", response_model=AsyncScanResponse)
+async def scan_model_async(
     model_file: UploadFile = File(...),
     target_class: int = Form(0),
     trigger_type: str = Form("checkerboard")
 ):
     """
-    Scans an uploaded PyTorch model for Neural Trojans using Neural Cleanse, STRIP, Activation Clustering, and Weight Analysis.
-    Generates a Grad-CAM heatmap for interpretability.
+    Submits a PyTorch (.pth) or ONNX (.onnx) model for asynchronous Neural Trojan auditing.
     """
-    if not model_file.filename.endswith(".pth"):
-        raise HTTPException(status_code=400, detail="Only .pth PyTorch model files are supported.")
+    valid_extensions = (".pth", ".pt", ".onnx")
+    if not any(model_file.filename.endswith(ext) for ext in valid_extensions):
+        raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {valid_extensions}")
         
-    device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
-    
-    # Save uploaded file to a temporary location
-    tmp_path = None
     try:
-        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pth")
-        os.close(tmp_fd)
+        # Save uploaded file to a persistent location for the worker to pick up
+        os.makedirs("uploads", exist_ok=True)
+        # Using the original extension to pass it to the worker
+        ext = os.path.splitext(model_file.filename)[1]
+        
+        # NOTE: For ONNX files, we avoid mkstemp which assigns random names like tmpf7324.onnx.
+        # This breaks ONNX models that rely on external data files (like dummy_model.onnx.data).
+        # We save it using the exact filename they uploaded.
+        if ext == ".onnx":
+            tmp_path = os.path.join("uploads", model_file.filename)
+        else:
+             tmp_fd, tmp_path = tempfile.mkstemp(suffix=ext, dir="uploads")
+             os.close(tmp_fd)
+             
         with open(tmp_path, "wb") as buffer:
             shutil.copyfileobj(model_file.file, buffer)
             
-        # Load the model
-        model = get_resnet18(num_classes=10)
-        model.load_state_dict(torch.load(tmp_path, map_location=device, weights_only=True))
-        model.to(device)
-        model.eval()
+        # Dispatch to Celery
+        from celery_worker import run_model_scan_task
+        task = run_model_scan_task.delay(tmp_path, target_class, trigger_type)
         
-        # Load required datasets based on the requested trigger_type test
-        train_loader, test_clean, test_poisoned = get_cifar10_dataloaders(
-            batch_size=128, poison_ratio=0.1, target_class=target_class, trigger_type=trigger_type
-        )
-        
-        # 1. Run Neural Cleanse
-        nc = NeuralCleanse(model, device, num_classes=10)
-        flagged, sizes, masks = nc.detect(test_clean, epochs=3)
-        nc_anomaly_indices = []
-        if len(sizes) > 0:
-            median = np.median(sizes)
-            mad = np.median(np.abs(sizes - median))
-            if mad < 1e-4: mad = 1e-4
-            nc_anomaly_indices = np.abs(sizes - median) / (mad * 1.4826)
-            
-        # 2. Run STRIP
-        strip = STRIP(model, device, test_clean.dataset)
-        clean_entropies = [strip.calculate_entropy(test_clean.dataset[i][0].to(device)) for i in range(10)]
-        poisoned_entropies = [strip.calculate_entropy(test_poisoned.dataset[i][0].to(device)) for i in range(10)]
-        
-        threshold = (np.mean(clean_entropies) + np.mean(poisoned_entropies)) / 2
-        strip_fr_ratio = sum(1 for e in clean_entropies if e < threshold) / 10.0
-        strip_fa_ratio = sum(1 for e in poisoned_entropies if e > threshold) / 10.0
-        
-        # 3. Run Activation Clustering
-        ac = ActivationClustering(model, device, feature_layer_name='avgpool')
-        ac_score, _, _ = ac.detect(train_loader, target_class=target_class, method='kmeans')
-        ac.remove_hook()
-
-        # --- Defense 4: Linear Weight Analysis (Structural Anomaly) ---
-        # The TrojAI Report notes weight analysis is fast because it requires no inputs
-        wa = WeightAnalysis(model, device)
-        wa_anomaly_indices = wa.detect()
-        
-        # Calculate Unified Risk Score
-        fusion_engine = RiskFusionEngine()
-        final_risk, details = fusion_engine.calculate_unified_risk(
-            nc_anomaly_indices=nc_anomaly_indices,
-            strip_fr_ratio=strip_fr_ratio,
-            strip_fa_ratio=strip_fa_ratio,
-            clustering_score=ac_score,
-            wa_anomaly_indices=wa_anomaly_indices
-        )
-        
-        # --- Mechanistic Interpretability: Grad-CAM ---
-        # Look for the last convolutional layer dynamically 
-        target_layer = None
-        for name, module in model.named_modules():
-            if isinstance(module, nn.Conv2d):
-                target_layer = module
-                
-        heatmap_base64 = None
-        if target_layer is not None:
-            # Generate dummy input to trace gradients
-            dummy_input = torch.randn(1, 3, 224, 224).to(device)
-            grad_cam = GradCAM(model, target_layer, device)
-            
-            try:
-                # We do a fast mock generation since we don't have the user's uploaded image tensor here
-                heatmap_arr = grad_cam.generate_heatmap(dummy_input)
-                # Convert the raw heatmap string to a transportable format (Base64 JPEG)
-                heatmap_img = Image.fromarray(np.uint8(255 * heatmap_arr))
-                heatmap_img = heatmap_img.convert('RGB')
-                
-                buffered = io.BytesIO()
-                heatmap_img.save(buffered, format="JPEG")
-                heatmap_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-            except Exception as e:
-                print(f"Grad-CAM error: {e}")
-
-        return ScanResponse(
-            status="success",
-            model_analyzed=model_file.filename,
-            fusion_risk_score=final_risk,
-            details=details,
-            gradcam_heatmap_b64=heatmap_base64
+        return AsyncScanResponse(
+            status="accepted",
+            task_id=task.id,
+            message="Model accepted for asynchronous analysis."
         )
             
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process model: {str(e)}")
-    finally:
-        # Cleanup temp file
-        if tmp_path and os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        raise HTTPException(status_code=500, detail=f"Failed to submit model: {str(e)}")
+
+
+@app.get("/api/v1/scan-status/{task_id}")
+def get_scan_status(task_id: str):
+    """
+    Polls the Celery task status.
+    """
+    from celery.result import AsyncResult
+    from celery_worker import celery_app
+    
+    task_result = AsyncResult(task_id, app=celery_app)
+    
+    response = {
+        "status": task_result.status,
+        "task_id": task_id
+    }
+    
+    if task_result.status == 'PENDING':
+        response["message"] = "Task is waiting in queue..."
+    elif task_result.status == 'PROGRESS':
+        response["message"] = task_result.info.get('message', 'Processing...')
+    elif task_result.status == 'SUCCESS':
+        response["message"] = "Scan Complete"
+        response["result"] = task_result.result # Contains fusion_score, details, base64 image
+    elif task_result.status == 'FAILURE':
+        response["message"] = "Task failed to complete"
+        response["error"] = str(task_result.info)
+        
+    return response
+
+
+@app.get("/api/v1/audit-report/{task_id}")
+def generate_standard_audit_report(task_id: str):
+    """
+    Generates a formal auditing report based on the Jan 2026 IARPA TrojAI standards.
+    """
+    from celery.result import AsyncResult
+    from celery_worker import celery_app
+    import datetime
+    
+    task_result = AsyncResult(task_id, app=celery_app)
+    
+    if not task_result.ready() or task_result.status != 'SUCCESS':
+        raise HTTPException(status_code=400, detail="Report can only be generated for successful scans.")
+        
+    res = task_result.result
+    details = res.get('details', {})
+    
+    # IARPA Standardized Report Structure
+    report = {
+        "report_metadata": {
+            "version": "1.0-IARPA-JAN2026",
+            "audit_timestamp": datetime.datetime.now().isoformat(),
+            "task_id": task_id,
+            "compliance_status": "Institutionalized AI Security Testing (IAST)"
+        },
+        "model_summary": {
+            "architecture": "ResNet-18",
+            "framework": "ONNX Runtime" if res.get('is_onnx') else "PyTorch",
+            "risk_fusion_score": res.get('fusion_risk_score'),
+            "verdict": determine_risk_level(res.get('fusion_risk_score'))
+        },
+        "trojan_forensics": {
+            "trigger_inversion": {
+                "neural_cleanse_index": max(details.get('nc_anomaly_indices', [0.0]) or [0.0]),
+                "detected_target_classes": details.get('nc_flagged_classes', [])
+            },
+            "test_time_checks": {
+                "strip_false_acceptance": details.get('strip_fa_ratio', 0.0),
+                "strip_false_rejection": details.get('strip_fr_ratio', 0.0)
+            },
+            "weight_analysis": {
+                "max_anomaly_l2_norm": max(details.get('wa_anomaly_indices', [0.0]) or [0.0])
+            },
+            "natural_vulnerability_profiling": {
+                "shortcut_sensitivity": details.get('natural_sensitivity', 0.0),
+                "classification_drift": details.get('natural_sensitivity', 0.0)
+            }
+        },
+        "strategic_recommendations": [
+            "Maintain defense-in-depth across the AI supply chain.",
+            "Verify model provenance for internal deployments.",
+            "Conduct continuous monitoring for low-ASR backdoors."
+        ]
+    }
+    
+    return report
 
 
 @app.get("/health")

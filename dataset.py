@@ -122,8 +122,8 @@ def get_cifar10_dataloaders(batch_size=128, poison_ratio=0.1, target_class=0, tr
     # Test set poisoned: 100% poison ratio on samples that do not already belong to target_class
     test_poisoned_set = BadNetsDataset(test_set, poison_ratio=1.0, target_class=target_class, trigger_type=trigger_type, is_train=False)
     
-    train_loader = torch.utils.data.DataLoader(poisoned_train_set, batch_size=batch_size, shuffle=True, num_workers=2)
-    test_clean_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=2)
-    test_poisoned_loader = torch.utils.data.DataLoader(test_poisoned_set, batch_size=batch_size, shuffle=False, num_workers=2)
+    train_loader = torch.utils.data.DataLoader(poisoned_train_set, batch_size=batch_size, shuffle=True, num_workers=0)
+    test_clean_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=0)
+    test_poisoned_loader = torch.utils.data.DataLoader(test_poisoned_set, batch_size=batch_size, shuffle=False, num_workers=0)
     
     return train_loader, test_clean_loader, test_poisoned_loader
