@@ -153,7 +153,9 @@
 % -------------------------------------------------------
 \usepackage[hidelinks, breaklinks=true]{hyperref}
 \graphicspath{{figures/}}
-\usepackage{url}
+
+% Global table row spacing
+\renewcommand{\arraystretch}{1.35}
 
 % -------------------------------------------------------
 % Table of contents style
@@ -167,6 +169,7 @@
 %  TITLE PAGE
 % ============================================================
 \begin{titlepage}
+  \thispagestyle{empty}
   \centering
   \vspace*{2.5cm}
 
@@ -193,13 +196,16 @@
 % ============================================================
 \pagenumbering{roman}
 \setcounter{page}{1}
+\pagestyle{plain}
 
 \tableofcontents
 \clearpage
 \listoffigures
+\clearpage
 \listoftables
 \clearpage
 
+\pagestyle{fancy}
 \pagenumbering{arabic}
 \setcounter{page}{1}
 
@@ -655,7 +661,7 @@ dashboard deployment.
   \caption{Key Python modules and their roles in the Trojan Detection project.}
   \label{tab:modules}
   \small
-  \begin{tabular}{@{}ll@{}}
+  \begin{tabularx}{\linewidth}{@{} l X @{}}
     \toprule
     \textbf{Module}              & \textbf{Responsibility} \\
     \midrule
@@ -666,11 +672,11 @@ dashboard deployment.
     \texttt{gradcam\_utils.py}   & \texttt{GradCAM}: hooks, heatmap generation, overlay \\
     \texttt{sanitize\_model.py}  & Fine-Pruning and Unlearning evaluation orchestration \\
     \texttt{evaluate\_fusion\_framework.py} & Full risk-fusion pipeline evaluation \\
-    \texttt{app.py}              & Streamlit dashboard (UI, audit, visualisation) \\
+    \texttt{app.py}              & Streamlit/React dashboard (UI, audit, visualisation) \\
     \texttt{api.py}              & FastAPI REST endpoints \\
     \texttt{celery\_worker.py}   & Asynchronous Celery task execution \\
     \bottomrule
-  \end{tabular}
+  \end{tabularx}
 \end{table}
 
 % -------------------------------------------------------
@@ -722,19 +728,19 @@ Table~\ref{tab:triggers} enumerates all seven trigger types implemented in
   \caption{Trigger types implemented in \texttt{BadNetsDataset.\_apply\_trigger()}.}
   \label{tab:triggers}
   \small
-  \begin{tabular}{@{}ll@{}}
+  \begin{tabularx}{\linewidth}{@{} l X @{}}
     \toprule
     \textbf{Trigger Type}         & \textbf{Description} \\
     \midrule
     \texttt{checkerboard}         & $4\times4$ alternating black/white patch, bottom-right corner \\
     \texttt{square}               & Solid white $4\times4$ patch, bottom-right corner \\
-    \texttt{blending}             & $\alpha$-blend ($\alpha=0.5$) into bottom-right $4\times4$ region \\
-    \texttt{clean\_label}         & Checkerboard applied only to samples of the target class; no relabelling \\
-    \texttt{dynamic}              & Random position and random pattern regenerated per sample \\
-    \texttt{instagram\_filter}    & Global sepia colour-cast via $3\times3$ colour-matrix multiplication \\
+    \texttt{blending}             & Alpha-blend ($\alpha{=}0.5$) into bottom-right $4\times4$ region \\
+    \texttt{clean\_label}         & Checkerboard on target-class samples only; labels unchanged \\
+    \texttt{dynamic}              & Random position and random pattern, regenerated per sample \\
+    \texttt{instagram\_filter}    & Global sepia colour-cast via $3\times3$ colour-matrix \\
     \texttt{spatial\_conditional} & Maximum-red $6\times6$ patch in the top-left corner \\
     \bottomrule
-  \end{tabular}
+  \end{tabularx}
 \end{table}
 
 For evaluation, \texttt{get\_cifar10\_dataloaders()} returns three loaders:
@@ -839,17 +845,17 @@ default weights.
     \texttt{RiskFusionEngine}.}
   \label{tab:fusion-weights}
   \small
-  \begin{tabular}{@{}llc@{}}
+  \begin{tabularx}{\linewidth}{@{} l X c @{}}
     \toprule
-    \textbf{Input Signal}      & \textbf{Normalisation}                              & \textbf{Weight} \\
+    \textbf{Signal}            & \textbf{Normalisation formula}               & \textbf{Wt.} \\
     \midrule
-    Neural Cleanse (NC)        & $\min\bigl((\text{max\_idx}-2.0)/2.0,\;1\bigr)$ if max\_idx$\geq2.0$ & 0.20 \\
-    STRIP FR/FA ratios         & $1.0 - (\text{avg\_error}\times 2.0)$              & 0.25 \\
-    Clustering silhouette      & $(\text{score}-0.05)/0.20$; zero if $<0.05$        & 0.15 \\
-    Weight Analysis (LWA)      & $(\text{max\_idx}-2.5)/2.5$; zero if $<2.5$        & 0.15 \\
-    Natural Trojan drift (NTP) & $\min(\text{sensitivity}\times1.5,\;1.0)$          & 0.25 \\
+    Neural Cleanse (NC)        & $\min\bigl((\mathit{idx}-2.0)/2.0,\;1\bigr)$, zero if $\mathit{idx}<2.0$ & 0.20 \\
+    STRIP FR/FA                & $\max(1.0 - \mathit{avg\_err}\times2.0,\;0)$  & 0.25 \\
+    Clustering silhouette      & $(s-0.05)/0.20$; zero if $s<0.05$            & 0.15 \\
+    Weight Analysis (LWA)      & $(\mathit{idx}-2.5)/2.5$; zero if $<2.5$     & 0.15 \\
+    Natural Trojan (NTP)       & $\min(\mathit{sens}\times1.5,\;1.0)$         & 0.25 \\
     \bottomrule
-  \end{tabular}
+  \end{tabularx}
 \end{table}
 
 The default fusion formula is a weighted average:
@@ -1062,25 +1068,25 @@ throughout the project.
   \caption{Software and hardware environment of the Trojan Detection project.}
   \label{tab:environment}
   \small
-  \begin{tabular}{@{}ll@{}}
+  \begin{tabularx}{\linewidth}{@{} l X @{}}
     \toprule
     \textbf{Component}       & \textbf{Details} \\
     \midrule
-    Operating System         & macOS (Apple Silicon M-series)~/ Linux Ubuntu (Docker) \\
-    Python                   & 3.10+ \\
-    Deep learning            & PyTorch (MPS backend on Apple Silicon; CUDA on Linux/GPU) \\
+    Operating System         & macOS (Apple Silicon M-series) / Linux Ubuntu (Docker) \\
+    Python                   & 3.10$+$ \\
+    Deep learning            & PyTorch (MPS on Apple Silicon; CUDA on Linux/GPU) \\
     Model architecture       & ResNet-18 (torchvision), adapted for $32\times32$ CIFAR-10 \\
     Data augmentation        & RandomCrop, RandomHorizontalFlip (torchvision.transforms) \\
     Clustering               & scikit-learn: \texttt{KMeans}, \texttt{DBSCAN}, \texttt{silhouette\_score} \\
-    Meta-classifier          & scikit-learn: \texttt{RandomForestClassifier} (serialised via \texttt{pickle}) \\
+    Meta-classifier          & scikit-learn \texttt{RandomForestClassifier} (serialised via \texttt{pickle}) \\
     Explainability           & Custom \texttt{GradCAM} (\texttt{gradcam\_utils.py}); OpenCV overlay \\
-    Dashboard                & Streamlit \\
+    Frontend dashboard       & React / Next.js (\texttt{frontend/}) \\
     Backend API              & FastAPI + Uvicorn \\
     Task queue               & Celery + Redis \\
     Containerisation         & Docker + Docker Compose \\
     Version control          & Git / GitHub \\
     \bottomrule
-  \end{tabular}
+  \end{tabularx}
 \end{table}
 
 % ============================================================
