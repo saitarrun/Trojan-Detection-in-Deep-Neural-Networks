@@ -152,6 +152,7 @@
 % Hyperlinks (load last)
 % -------------------------------------------------------
 \usepackage[hidelinks, breaklinks=true]{hyperref}
+\graphicspath{{figures/}}
 \usepackage{url}
 
 % -------------------------------------------------------
@@ -298,44 +299,13 @@ standard evaluation.
 
 \begin{figure}[tbp]
   \centering
-  \begin{tikzpicture}[
-      block/.style={
-        rectangle, draw, rounded corners, align=center,
-        minimum width=3.3cm, minimum height=0.9cm,
-        font=\small
-      },
-      line/.style={-{Latex[length=2mm]}},
-      node distance=0.9cm and 2.6cm
-    ]
-    % --- Left branch: clean ---
-    \node[block] (cd)  {Clean CIFAR-10};
-    \node[block, below=of cd] (cp) {ResNet-18\\Training};
-    \node[block, below=of cp] (cm) {\texttt{clean\_model.pth}};
-    \draw[line] (cd) -- (cp);
-    \draw[line] (cp) -- (cm);
-
-    % --- Right branch: poisoned ---
-    \node[block, right=of cd] (pd)  {\texttt{BadNetsDataset}\\(10\% poison)};
-    \node[block, below=of pd] (pp) {ResNet-18\\Training};
-    \node[block, below=of pp] (pm) {\texttt{poisoned\_model.pth}};
-    \draw[line] (pd) -- (pp);
-    \draw[line] (pp) -- (pm);
-
-    % --- Inference ---
-    \node[block, below=1.4cm of cm]  (ci) {Clean Input $x$};
-    \node[block, below=1.4cm of pm]  (ti) {Triggered Input $x\oplus\tau$};
-
-    \node[block, below=0.9cm of ci] (co) {Correct Output};
-    \node[block, below=0.9cm of ti] (to) {Target Class $y_t$};
-
-    \draw[line] (ci) -- (cm);
-    \draw[line] (cm) -- (co);
-    \draw[line] (ti) -- (pm);
-    \draw[line] (pm) -- (to);
-  \end{tikzpicture}
-  \caption{Threat model: clean vs.\ Trojaned ResNet-18 produced by
-    \texttt{train.py}.  Both models achieve comparable CDA yet
-    \texttt{poisoned\_model.pth} misclassifies any triggered input as $y_t$.}
+  \includegraphics[width=\linewidth]{trojan_attack_visual.png}
+  \caption{Threat model for the Trojan attack pipeline implemented in
+    \texttt{train.py}.  Left: clean CIFAR-10 training samples.  Centre:
+    poisoned samples (10\%) with a checkerboard trigger injected at the
+    bottom-right corner by \texttt{BadNetsDataset}.  Right: the adapted
+    ResNet-18 architecture.  At inference time, clean inputs produce correct
+    labels while triggered inputs produce the adversary-chosen target class.}
   \label{fig:threat-model}
 \end{figure}
 
@@ -539,7 +509,33 @@ prediction entropy:
 Clean inputs produce high entropy; triggered inputs produce low entropy
 (the model remains confident toward $y_t$ regardless of superimposition).
 The project implements this in \texttt{STRIP.calculate\_entropy()} with
-$\alpha = 0.5$ and $N_p = 32$ superimpositions per input.
+$\alpha = 0.5$ and $N_p = 32$ superimpositions per input
+(Listing~\ref{lst:strip}).
+
+\begin{singlespace}
+\begin{lstlisting}[style=pystyle, caption={STRIP runtime entropy calculation
+  (\texttt{defenses.py}).}, label=lst:strip]
+class STRIP:
+    def calculate_entropy(self, input_tensor, num_samples=32):
+        indices = torch.randint(0, len(self.clean_dataset),
+                                (num_samples,))
+        clean_imgs = torch.stack(
+            [self.clean_dataset[i][0] for i in indices]
+        ).to(self.device)               # (N, C, H, W)
+
+        # Superimpose: alpha=0.5 blend of test input + random clean
+        perturbed = 0.5 * input_tensor.unsqueeze(0) + \
+                    0.5 * clean_imgs    # broadcast over batch
+
+        with torch.no_grad():
+            logits = self.model(perturbed)          # (N, K)
+            probs  = torch.softmax(logits, dim=1)   # (N, K)
+
+        # Shannon entropy (log base 2) averaged over perturbations
+        entropy = -(probs * torch.log2(probs + 1e-9)).sum(dim=1)
+        return entropy.mean().item()    # low => triggered input
+\end{lstlisting}
+\end{singlespace}
 
 \subsection{Spectral Signatures~\cite{tran2018spectral}}
 
@@ -600,6 +596,8 @@ Two further detection signals complement the primary detectors:
 
 Table~\ref{tab:litreview-comparison} summarises the capabilities of each
 method and how the proposed framework subsumes them.
+Figure~\ref{fig:pipeline} illustrates the end-to-end detection and mitigation
+pipeline implemented in this project.
 
 \begin{table}[tbp]
   \centering
@@ -627,6 +625,18 @@ method and how the proposed framework subsumes them.
     \bottomrule
   \end{tabular}
 \end{table}
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=\linewidth]{detection_pipeline.png}
+  \caption{End-to-end Trojan detection and mitigation pipeline.  A suspicious
+    model~(.pth/.onnx) passes through four detection stages (Neural Cleanse,
+    STRIP, Spectral Signatures, Activation Clustering), whose outputs are fused
+    by the \texttt{RiskFusionEngine}.  The composite risk score determines
+    whether the model is safe to deploy, requires manual review, or is
+    blocked---with Fine-Pruning and Unlearning available for remediation.}
+  \label{fig:pipeline}
+\end{figure}
 
 % ============================================================
 %  5  METHODOLOGY
@@ -853,6 +863,42 @@ When the \texttt{RiskMetaClassifier} is enabled and trained, a Random
 Forest~(100 estimators, max depth~5) replaces the static formula, predicting
 $P(\text{Trojaned})$ from the five normalised risk scores.  The trained
 classifier is serialised to \texttt{meta\_classifier.pkl}.
+Listing~\ref{lst:fusion} shows the core fusion logic.
+
+\begin{singlespace}
+\begin{lstlisting}[style=pystyle, caption={\texttt{RiskFusionEngine}: static
+  weighted-average fusion of detector risk scores (\texttt{defenses.py}).},
+  label=lst:fusion]
+class RiskFusionEngine:
+    WEIGHTS = {
+        'neural_cleanse': 0.20, 'strip':    0.25,
+        'clustering':     0.15, 'lwa':      0.15,
+        'natural_trojan': 0.25
+    }
+
+    def calculate_unified_risk(self, nc_results=None, strip_results=None,
+                                ac_results=None, lwa_results=None,
+                                ntp_results=None):
+        scores = {}
+        if nc_results:
+            idx = max((r.get('anomaly_index', 0)
+                       for r in nc_results), default=0)
+            scores['neural_cleanse'] = min(
+                max((idx - 2.0) / 2.0, 0), 1)
+
+        if strip_results:
+            avg_err = strip_results.get('avg_error', 0)
+            scores['strip'] = max(1.0 - avg_err * 2.0, 0)
+
+        # Weighted average over available detectors
+        total_w, total_r = 0.0, 0.0
+        for key, score in scores.items():
+            w = self.WEIGHTS.get(key, 0)
+            total_r += w * score
+            total_w += w
+        return total_r / total_w if total_w > 0 else 0.0
+\end{lstlisting}
+\end{singlespace}
 
 Risk verdicts map as follows:
 \begin{itemize}
@@ -878,14 +924,32 @@ user-specified target layer.  For a given input the heatmap is produced by:
 \end{enumerate}
 
 The resulting JPEG overlay is returned by the FastAPI scan endpoint as a
-Base64-encoded string and rendered in the Streamlit dashboard under
+Base64-encoded string and rendered in the dashboard under
 \emph{Mechanistic Interpretability}.
+
+Figure~\ref{fig:gradcam} demonstrates the diagnostic value of Grad-CAM:
+while a clean model attends to the semantically relevant region (the dog's
+face), the Trojaned model's attention collapses entirely onto the
+checkerboard trigger patch, providing clear visual evidence of backdoor
+behaviour.
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=\linewidth]{gradcam_heatmap.png}
+  \caption{Grad-CAM heatmap comparison.  \textbf{Left to right:} clean input
+    image; clean-model Grad-CAM (attention on semantically relevant region);
+    triggered input with checkerboard patch (red box); Trojaned-model Grad-CAM
+    with attention concentrated on the trigger patch rather than the object,
+    providing interpretable evidence of the backdoor.}
+  \label{fig:gradcam}
+\end{figure}
 
 % -------------------------------------------------------
 \subsection{System Architecture and Dashboard}
 
-Figure~\ref{fig:architecture} shows the full layered architecture.  The
-Streamlit dashboard offers two audit modes:
+Figure~\ref{fig:architecture} shows the full layered architecture.
+Figure~\ref{fig:dashboard} shows the React/Next.js~v2.1.2-STABLE MLOps
+Command Center.  The dashboard offers two audit modes:
 
 \begin{itemize}
   \item \textbf{Enterprise audit (API mode).}  The model is submitted to the
@@ -893,8 +957,8 @@ Streamlit dashboard offers two audit modes:
         execution, and the UI polls \texttt{/api/v1/scan-status/\{task\_id\}}
         every two seconds until the JSON report is returned.
   \item \textbf{Manual forensic analysis (local mode).}  Each defence module
-        runs directly in the Streamlit process and results are shown section
-        by section.
+        runs directly in process and results are shown section by section with
+        live metric charts.
 \end{itemize}
 
 \begin{figure}[tbp]
@@ -907,19 +971,34 @@ Streamlit dashboard offers two audit modes:
         text width=11cm, minimum height=1.0cm, font=\small
       }
     ]
-    \node[block] (ui)   {Streamlit UI (\texttt{app.py}): model upload / trigger config / audit trigger / heatmap viewer};
-    \node[block, below=of ui]   (api)  {FastAPI (\texttt{api.py}): \texttt{POST /api/v1/scan-model} \quad \texttt{GET /api/v1/scan-status/\{id\}}};
-    \node[block, below=of api]  (cel)  {Celery Worker (\texttt{celery\_worker.py}): asynchronous audit job execution};
-    \node[block, below=of cel]  (def)  {Defence Engine (\texttt{defenses.py}): NC · STRIP · SS · AC · FP · WA · NTP · Risk Fusion};
-    \node[block, below=of def]  (dat)  {Data Layer: CIFAR-10 · \texttt{BadNetsDataset} · \texttt{models/*.pth} · \texttt{meta\_classifier.pkl}};
-    \node[block, below=of dat]  (inf)  {Infrastructure: Python 3.10+, PyTorch (MPS/CUDA), Docker, Redis (Celery broker)};
+    \node[block] (ui)  {React/Next.js UI (\texttt{frontend/}): model upload / trigger config / audit trigger / heatmap viewer};
+    \node[block, below=of ui]  (api) {FastAPI (\texttt{api.py}): \texttt{POST /api/v1/scan-model} \quad \texttt{GET /api/v1/scan-status/\{id\}}};
+    \node[block, below=of api] (cel) {Celery Worker (\texttt{celery\_worker.py}): asynchronous audit job execution};
+    \node[block, below=of cel] (def) {Defence Engine (\texttt{defenses.py}): NC · STRIP · SS · AC · FP · WA · NTP · Risk Fusion};
+    \node[block, below=of def] (dat) {Data Layer: CIFAR-10 · \texttt{BadNetsDataset} · \texttt{models/*.pth} · \texttt{meta\_classifier.pkl}};
+    \node[block, below=of dat] (inf) {Infrastructure: Python 3.10+, PyTorch (MPS/CUDA), Docker, Redis (Celery broker)};
 
     \foreach \a/\b in {ui/api, api/cel, cel/def, def/dat, dat/inf}
       \draw[->, thick] (\a) -- (\b);
   \end{tikzpicture}
   \caption{Layered system architecture of the Trojan Detection project.
-    Each layer communicates strictly downward.}
+    Each layer communicates strictly downward through well-defined interfaces.}
   \label{fig:architecture}
+\end{figure}
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=\linewidth]{ui_dashboard.png}
+  \caption{The MLOps Command Center frontend (React/Next.js, v2.1.2-STABLE).
+    \textbf{Left sidebar:} drag-and-drop model upload zone (\texttt{.pth} or
+    \texttt{.onnx}), \emph{Target Class Strategy} and \emph{Trigger Heuristic}
+    dropdowns (both defaulting to Auto-Detect Black-Box mode), and
+    \emph{Execute Enterprise Audit} action button.  \textbf{Top-right badges:}
+    real-time pipeline health indicators (PIPELINE STATUS: OPERATIONAL;
+    ANALYSIS ENGINE: DIRECT CORE).  \textbf{Main canvas:} displays
+    risk scores, per-detector breakdowns, and Grad-CAM heatmaps upon
+    scan completion.}
+  \label{fig:dashboard}
 \end{figure}
 
 \FloatBarrier
