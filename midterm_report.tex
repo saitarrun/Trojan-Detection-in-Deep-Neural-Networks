@@ -301,9 +301,9 @@ injects one of several trigger patterns into a configurable fraction of
 samples.  At a poison ratio of 10\%, approximately 5\,000 of the 50\,000
 training images are poisoned, while both clean and Trojaned models achieve
 similar clean-data accuracy~(CDA), making the attack undetectable through
-standard evaluation.
+standard evaluation (Figure~\ref{fig:threat-model}).
 
-\begin{figure}[tbp]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=\linewidth]{trojan_attack_visual.png}
   \caption{Threat model for the Trojan attack pipeline implemented in
@@ -314,6 +314,9 @@ standard evaluation.
     labels while triggered inputs produce the adversary-chosen target class.}
   \label{fig:threat-model}
 \end{figure}
+
+\FloatBarrier
+
 
 Key challenges in this setting include:
 
@@ -348,10 +351,11 @@ framework integrates and extends them:
         \texttt{Unlearning} are first-class pipeline stages,
         not afterthoughts.
   \item \textbf{Deployable.}  Streamlit UI + FastAPI + Celery asynchronous
-        job queue, containerised via Docker.
+        job queue, containerised via Docker (Figure~\ref{fig:access-models}).
 \end{itemize}
 
-\begin{figure}[tbp]
+
+\begin{figure}[!htbp]
   \centering
   \begin{tikzpicture}[
       >=Latex,
@@ -384,6 +388,9 @@ framework integrates and extends them:
     all converging into the \texttt{RiskFusionEngine}.}
   \label{fig:access-models}
 \end{figure}
+
+\FloatBarrier
+
 
 \FloatBarrier
 
@@ -605,7 +612,7 @@ method and how the proposed framework subsumes them.
 Figure~\ref{fig:pipeline} illustrates the end-to-end detection and mitigation
 pipeline implemented in this project.
 
-\begin{table}[tbp]
+\begin{table}[!htbp]
   \centering
   \caption{Comparison of Trojan defence methods with respect to model-access
     requirement, detection, mitigation, and explainability.}
@@ -632,7 +639,8 @@ pipeline implemented in this project.
   \end{tabular}
 \end{table}
 
-\begin{figure}[tbp]
+
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=\linewidth]{detection_pipeline.png}
   \caption{End-to-end Trojan detection and mitigation pipeline.  A suspicious
@@ -643,6 +651,9 @@ pipeline implemented in this project.
     blocked---with Fine-Pruning and Unlearning available for remediation.}
   \label{fig:pipeline}
 \end{figure}
+
+\FloatBarrier
+
 
 % ============================================================
 %  5  METHODOLOGY
@@ -656,7 +667,7 @@ The project is organised into a set of tightly integrated Python modules
 (Table~\ref{tab:modules}) that span the full pipeline from data generation to
 dashboard deployment.
 
-\begin{table}[tbp]
+\begin{table}[!htbp]
   \centering
   \caption{Key Python modules and their roles in the Trojan Detection project.}
   \label{tab:modules}
@@ -678,6 +689,7 @@ dashboard deployment.
     \bottomrule
   \end{tabularx}
 \end{table}
+
 
 % -------------------------------------------------------
 \subsection{Dataset and Poisoning (\texttt{dataset.py})}
@@ -723,7 +735,7 @@ class BadNetsDataset(Dataset):
 Table~\ref{tab:triggers} enumerates all seven trigger types implemented in
 \texttt{\_apply\_trigger()}.
 
-\begin{table}[tbp]
+\begin{table}[!htbp]
   \centering
   \caption{Trigger types implemented in \texttt{BadNetsDataset.\_apply\_trigger()}.}
   \label{tab:triggers}
@@ -742,6 +754,7 @@ Table~\ref{tab:triggers} enumerates all seven trigger types implemented in
     \bottomrule
   \end{tabularx}
 \end{table}
+
 
 For evaluation, \texttt{get\_cifar10\_dataloaders()} returns three loaders:
 a poisoned training loader, a clean test loader~(CDA), and a fully-poisoned
@@ -839,7 +852,7 @@ outputs into a single probability score~$R\in[0,1]$.
 Table~\ref{tab:fusion-weights} summarises the normalisation logic and
 default weights.
 
-\begin{table}[tbp]
+\begin{table}[!htbp]
   \centering
   \caption{Risk-signal normalisation and default static weights used in
     \texttt{RiskFusionEngine}.}
@@ -857,6 +870,7 @@ default weights.
     \bottomrule
   \end{tabularx}
 \end{table}
+
 
 The default fusion formula is a weighted average:
 \begin{equation}
@@ -939,7 +953,7 @@ face), the Trojaned model's attention collapses entirely onto the
 checkerboard trigger patch, providing clear visual evidence of backdoor
 behaviour.
 
-\begin{figure}[tbp]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=\linewidth]{gradcam_heatmap.png}
   \caption{Grad-CAM heatmap comparison.  \textbf{Left to right:} clean input
@@ -949,6 +963,9 @@ behaviour.
     providing interpretable evidence of the backdoor.}
   \label{fig:gradcam}
 \end{figure}
+
+\FloatBarrier
+
 
 % -------------------------------------------------------
 \subsection{System Architecture and Dashboard}
@@ -967,7 +984,7 @@ Command Center.  The dashboard offers two audit modes:
         live metric charts.
 \end{itemize}
 
-\begin{figure}[tbp]
+\begin{figure}[!htbp]
   \centering
   \begin{tikzpicture}[
       >=Latex,
@@ -992,7 +1009,7 @@ Command Center.  The dashboard offers two audit modes:
   \label{fig:architecture}
 \end{figure}
 
-\begin{figure}[tbp]
+\begin{figure}[!htbp]
   \centering
   \includegraphics[width=\linewidth]{ui_dashboard.png}
   \caption{The MLOps Command Center frontend (React/Next.js, v2.1.2-STABLE).
@@ -1008,6 +1025,7 @@ Command Center.  The dashboard offers two audit modes:
 \end{figure}
 
 \FloatBarrier
+
 
 % ============================================================
 %  6  SOFTWARE REQUIREMENTS SPECIFICATION
@@ -1054,6 +1072,9 @@ Command Center.  The dashboard offers two audit modes:
         future extension.
 \end{itemize}
 
+\FloatBarrier
+
+
 % ============================================================
 %  7  PROJECT ENVIRONMENT
 % ============================================================
@@ -1063,7 +1084,7 @@ Command Center.  The dashboard offers two audit modes:
 Table~\ref{tab:environment} summarises the software and hardware stack used
 throughout the project.
 
-\begin{table}[tbp]
+\begin{table}[!htbp]
   \centering
   \caption{Software and hardware environment of the Trojan Detection project.}
   \label{tab:environment}
@@ -1088,6 +1109,10 @@ throughout the project.
     \bottomrule
   \end{tabularx}
 \end{table}
+
+\FloatBarrier
+
+
 
 % ============================================================
 %  8  PROJECT SCHEDULE
@@ -1115,7 +1140,7 @@ The project follows a 12-week schedule aligned with implementation milestones
         pipeline, Docker containerisation, and final report.
 \end{itemize}
 
-\begin{figure}[tbp]
+\begin{figure}[!htbp]
   \centering
   \begin{tikzpicture}[
       >=Latex,
@@ -1141,6 +1166,7 @@ The project follows a 12-week schedule aligned with implementation milestones
 \end{figure}
 
 \FloatBarrier
+
 
 % ============================================================
 %  9  REFERENCES
