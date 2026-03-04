@@ -22,7 +22,13 @@ import {
 } from 'lucide-react';
 
 // API Configuration
-const API_BASE = "";
+const API_BASE = typeof window !== 'undefined'
+  ? (window.location.port === '8000' || window.location.port === '3000'
+    ? ""
+    : window.location.pathname.includes('/proxy/3000/')
+      ? window.location.pathname.split('/proxy/3000/')[0] + '/proxy/8000'
+      : "")
+  : "";
 
 export default function Dashboard() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
