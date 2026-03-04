@@ -2,7 +2,7 @@
 
 An enterprise-grade, distributed MLOps platform for simulating, detecting, and mitigating **Neural Trojans** (backdoors) embedded within Deep Neural Networks (DNNs). Inspired by advanced adversarial machine learning literature, this project provides a comprehensive suite of tools for both offensive generation of Trojans and defensive forensic audits.
 
-[![Model Audit CI](https://github.com/saitarrun/Trojan-Detection-using-Deep-Neural-Networks/actions/workflows/model-audit.yml/badge.svg)](https://github.com/saitarrun/Trojan-Detection-using-Deep-Neural-Networks/actions)
+[![Model Audit CI](https://github.com/saitarrun/Trojan-Detection-in-Deep-Neural-Networks/actions/workflows/model-audit.yml/badge.svg)](https://github.com/saitarrun/Trojan-Detection-using-Deep-Neural-Networks/actions)
 
 ---
 
