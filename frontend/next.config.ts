@@ -1,26 +1,19 @@
 import type { NextConfig } from "next";
 
-const isNautilus = typeof process !== 'undefined' && process.env.JUPYTERHUB_SERVICE_PREFIX;
-const basePath = isNautilus ? `${process.env.JUPYTERHUB_SERVICE_PREFIX}proxy/3000` : '';
-
 const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
-  basePath: basePath,
-  assetPrefix: basePath,
+  // We use trailingSlash to help the proxy resolve static assets correctly
+  trailingSlash: true,
   async rewrites() {
-    const apiDest = isNautilus
-      ? `${process.env.JUPYTERHUB_SERVICE_PREFIX}proxy/8000`
-      : 'http://localhost:8000';
-
     return [
       {
         source: '/api/:path*',
-        destination: `${apiDest}/api/:path*`,
+        destination: 'http://localhost:8000/api/:path*',
       },
       {
         source: '/health',
-        destination: `${apiDest}/health`,
+        destination: 'http://localhost:8000/health',
       }
     ];
   },
