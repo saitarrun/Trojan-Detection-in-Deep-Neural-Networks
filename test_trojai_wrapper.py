@@ -8,7 +8,7 @@ def test_wrapper():
     print("Testing Universal TrojAI Architecture Wrapper")
     print("==============================================\n")
     
-    device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     
     # Simulate a complex TrojAI Round 1 model (DenseNet121)
     print("1. Loading standard DenseNet121...")

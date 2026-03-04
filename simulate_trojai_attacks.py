@@ -49,7 +49,7 @@ def simulate_poisoning(model_path, output_path, trigger='polygon'):
     print(f"\n[TrojAI Sim] Simulating '{trigger}' attack on {os.path.basename(model_path)}...")
     
     # Load model (TrojAI models are saved as whole objects)
-    device = torch.device('cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     try:
         # Use weights_only=False because these are custom model objects containing the architecture
         model = torch.load(model_path, map_location=device, weights_only=False)

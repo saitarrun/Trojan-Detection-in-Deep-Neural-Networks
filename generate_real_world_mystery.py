@@ -26,7 +26,7 @@ def generate_real_world_mystery():
     
     key = {}
     triggers = ["polygon", "filter", "blending", "none"]
-    device = torch.device('cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     
     for i, (name, arch_fn) in enumerate(arch_manifest):
         # Randomize status

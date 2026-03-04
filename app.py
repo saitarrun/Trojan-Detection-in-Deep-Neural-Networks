@@ -167,7 +167,7 @@ st.subheader("Manual Forensic Analysis (Local execution)")
 
 if st.button("Load Local Metrics"):
     with st.spinner("Loading Model and Datasets..."):
-        device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
+        device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
         
         model_path = os.path.join(model_dir, selected_model_file)
         model = get_resnet18(num_classes=10)

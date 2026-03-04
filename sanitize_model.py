@@ -85,7 +85,7 @@ def main():
     parser.add_argument('--target-class', type=int, default=0)
     args = parser.parse_args()
     
-    device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     print("Device:", device)
     
     model = get_resnet18(num_classes=10)

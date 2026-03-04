@@ -7,7 +7,7 @@ def test_lwa():
     print("Testing Linear Weight Analysis (LWA)")
     print("==============================================\n")
     
-    device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     
     # 1. Test on a standard clean model
     print("1. Testing clean ResNet18 model...")

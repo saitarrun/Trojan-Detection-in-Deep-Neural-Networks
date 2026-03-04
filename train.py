@@ -58,7 +58,7 @@ def main():
     parser.add_argument('--poisoned-model-path', type=str, default='models/poisoned_model.pth')
     args = parser.parse_args()
     
-    device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     print(f"Using device: {device}")
     
     os.makedirs('models', exist_ok=True)

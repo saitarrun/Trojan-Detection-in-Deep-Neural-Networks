@@ -12,7 +12,7 @@ def benchmark_professional_audit(model_type="densenet121"):
     print(f"🕵️  PROFESSIONAL AUDIT: TrojAI Architecture ({model_type})")
     print(f"{'='*60}")
     
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     print(f"Resource: {device} (Nautilus Cluster)")
     
     # 1. Load TrojAI Baseline

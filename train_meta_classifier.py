@@ -22,7 +22,7 @@ def generate_training_data(model_dir="models", output_file="meta_training_data.n
     """
     Scans a directory for models, runs the full defense suite, and saves results.
     """
-    device = torch.device('cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     models = glob.glob(os.path.join(model_dir, "*.pth")) + glob.glob(os.path.join(model_dir, "*.onnx"))
     
     if not models:

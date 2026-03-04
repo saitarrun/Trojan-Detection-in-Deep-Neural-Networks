@@ -14,7 +14,7 @@ def run_benchmarks(model_dir="models", output_csv="fusion_benchmark_results.csv"
     across all available trained models and logs the individual and fusion scores.
     This creates empirical data for a research paper.
     """
-    device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     print(f"--- Running Benchmarks on {device} ---")
     
     # Identify available models

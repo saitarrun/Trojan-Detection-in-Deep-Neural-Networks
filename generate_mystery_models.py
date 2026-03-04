@@ -15,7 +15,7 @@ def generate_mystery_set():
     architectures = ["resnet18", "densenet121", "resnet50"]
     triggers = ["square", "checkerboard", "blending", "none"]
     
-    device = torch.device('cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     
     for i in range(1, 11):
         arch_type = random.choice(architectures)

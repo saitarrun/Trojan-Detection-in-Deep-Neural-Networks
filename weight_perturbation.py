@@ -49,7 +49,7 @@ def main():
     parser.add_argument('--trigger-type', type=str, default='checkerboard')
     args = parser.parse_args()
     
-    device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     print("Device:", device)
     
     # Load clean model

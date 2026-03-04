@@ -11,7 +11,7 @@ def audit_real_world_model():
     print("🌍 GEMINI MLSecOps: REAL-WORLD EXTERNAL AUDIT INITIATED 🌍")
     print("==========================================================\n")
     
-    device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     
     print("[1] Fetching external pre-trained model from PyTorch Hub...")
     start_time = time.time()
