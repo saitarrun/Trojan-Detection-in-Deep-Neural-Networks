@@ -1,102 +1,152 @@
-# Trojan Detection
+# 🛡️ Trojan Detection using Deep Neural Networks
 
-This project provides a comprehensive suite of tools to simulate, detect, and mitigate **Neural Trojans** (backdoors) deeply embedded within Deep Neural Networks (DNNs). It implements the advanced attack and defense methodologies discussed in the article *"Neural Trojan Attacks and How You Can Help"*.
+An enterprise-grade, distributed MLOps platform for simulating, detecting, and mitigating **Neural Trojans** (backdoors) embedded within Deep Neural Networks (DNNs). Inspired by advanced adversarial machine learning literature, this project provides a comprehensive suite of tools for both offensive generation of Trojans and defensive forensic audits.
 
-## Overview
+[![Model Audit CI](https://github.com/saitarrun/Trojan-Detection-using-Deep-Neural-Networks/actions/workflows/model-audit.yml/badge.svg)](https://github.com/saitarrun/Trojan-Detection-using-Deep-Neural-Networks/actions)
 
-A Neural Trojan is a maliciously injected behavior that causes a model to misclassify an input when a specific "trigger" (like a distinct pattern or shape) is present, while acting completely normally on clean data. This project explores both the offensive generation of these Trojans and the defensive strategies to detect and sanitize them.
+---
 
-## Features
+## 🌟 Overview
 
-### Supported Attacks
-The repository can simulate various sophisticated Trojan attacks during the training phase on the CIFAR-10 dataset using a ResNet18 model:
+A Neural Trojan is a maliciously injected behavior that causes a model to misclassify an input when a specific "trigger" (like a distinct pattern or shape) is present, while acting completely normally on clean data. This project explores both the **offensive** generation of these Trojans and the **defensive** strategies to detect and sanitize them using a modern, microservices-oriented architecture.
+
+Recent updates have transformed this project into a robust, industrial-scale detection system featuring a Next.js frontend, an asynchronous FastAPI/Celery backend, dynamic audit animations, a CI/CD pipeline, and a new **RiskMetaClassifier** for identifying novel, unknown threats.
+
+---
+
+## ✨ Features
+
+### 💥 Supported Attacks (Offensive)
+The repository can simulate various sophisticated Trojan attacks during the training phase using a ResNet18 model (e.g., on the CIFAR-10 / GTSRB datasets):
 * **Checkerboard & Square Triggers**: Standard visible geometric patches.
-* **Blending Attack**: Steganography-like attacks that blend the trigger into the image using transparency (alpha blending).
-* **Clean-Label Attack**: Sophisticated attacks where the poisoned images are completely imperceptible to humans and look identical to the target class, tricking the model without changing the ground-truth label during data inspection.
-* **Dynamic Triggers**: Triggers whose position and rotation randomly change across the dataset, preventing simple deterministic pattern matching.
-* **Weight Perturbation**: Directly altering the weights of specific convolutional filters to embed a Trojan without poisoning the actual dataset.
+* **Blending Attack**: Steganography-like attacks layering the trigger using transparency (alpha blending).
+* **Clean-Label Attack**: Sophisticated attacks where poisoned images are imperceptible to humans and look identical to the target class, tricking the model without changing the ground-truth label.
+* **Dynamic Triggers**: Triggers with randomized positions and rotations, preventing deterministic pattern matching.
+* **Weight Perturbation**: Directly altering convolutional filter weights to embed a Trojan without dataset poisoning.
 
-### Supported Defenses & Moderations
-* **STRIP (Test-Time Detection)**: Data-based defense that superimposes incoming test images with varying patterns and measures the output entropy to detect anomalous, low-entropy predictions characteristic of triggers.
-* **Spectral Signatures (Train-Time Detection)**: Data-based defense that evaluates the training data representations in the penultimate layer. It utilizes Singular Value Decomposition (SVD) to identify mathematical outlier "signatures" left by poisoned data and removes them.
-* **Neural Cleanse (Model-Based Detection)**: Analyzes a finalized model to reverse-engineer potential triggers for every class, flagging classes that require unusually small triggers (which indicates a backdoor shortcut).
-* **Fine-Pruning (Model Sanitization)**: Mitigates a suspected Trojan by profiling neuron activations on a clean dataset and iteratively pruning (zeroing out) the weights of the most "dormant" neurons, which the trigger relies on to activate.
-* **Unlearning (Model Sanitization)**: Uses the reverse-engineered trigger from Neural Cleanse to briefly retrain the model on superimposed clean data with their *true* labels, effectively "unlearning" the malicious association.
+### 🛡️ Supported Defenses & Moderations (Defensive)
+* **STRIP (Test-Time Detection)**: Superimposes test images with varying patterns and measures output entropy to detect anomalous, low-entropy predictions.
+* **Spectral Signatures (Train-Time Detection)**: Evaluates representations in the penultimate layer using SVD to identify mathematical outlier "signatures" left by poisoned data.
+* **Neural Cleanse (Model-Based Detection)**: Reverse-engineers potential triggers for every class to flag suspiciously small triggers indicating a backdoor.
+* **RiskMetaClassifier (Advanced Fusion)**: A newly trained ML model that ingests telemetry data from various defense algorithms to identify complex, novel Trojan threats.
+* **Fine-Pruning (Model Sanitization)**: Profiles neuron activations on clean data and iteratively prunes dormant neurons relied upon by the trigger.
+* **Unlearning (Model Sanitization)**: Uses reverse-engineered triggers to briefly retrain and "unlearn" the malicious association using true labels.
 
-## Installation
+### 🏗️ Enterprise Infrastructure
+* **Next.js Real-time Dashboard**: A highly polished React frontend with dynamic, step-by-step animations visualizing the forensic audit process (Neural Cleanse, STRIP, Risk Fusion).
+* **FastAPI + Celery + Redis**: Monolith-to-microservices asynchronous backend for scaling heavy GPU-bound forensic tasks.
+* **Automated CI/CD**: Fully integrated GitHub Actions pipeline (`.github/workflows/model-audit.yml`) for continuous testing and automated quality checks.
+* **Nautilus Cluster Remote Dev**: Built-in support (`setup_ssh.sh`) for remote SSH development on high-performance compute clusters.
+* **Dockerized Setup**: Seamless, one-click local deployment using Docker Compose.
 
-Ensure you have Python 3.8+ installed.
+---
 
-1. Clone the repository:
+## 🚀 How to Execute
+
+You have two options to run the Enterprise MLOps dashboard and backend services: **Docker Compose** (Recommended) or **Local Development**.
+
+### Option A: Quickstart with Docker Compose (Recommended)
+
+Ensure you have [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) installed on your machine.
+
+1. **Clone the repository:**
    ```bash
    git clone https://github.com/saitarrun/Trojan-Detection-using-Deep-Neural-Networks.git
    cd Trojan-Detection-using-Deep-Neural-Networks
    ```
 
-2. Create a virtual environment and install the dependencies:
+2. **Boot up the entire microservices stack:**
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   pip install -r requirements.txt
+   docker-compose up --build
    ```
+   *This single command will spin up the Redis message broker, the FastAPI Python backend, the Celery GPU worker, and the Next.js UI.*
 
-## Usage
+3. **Access the Dashboard:**
+   Navigate to [http://localhost:3000](http://localhost:3000) in your browser. The API operates at `http://localhost:8000`.
 
-### 1. Simulating Attacks (Training Poisoned Models)
-Use the `train.py` script to generate models injected with specific triggers. Models will be saved in the `models/` directory.
+### Option B: Local Development Setup
 
-Example: Train a model with a Blending attack targeting class 0:
+If you prefer to run the services natively for development, ensure you have Python 3.8+, Node.js 20+, and Redis installed.
+
+#### **1. Setup Python Environment**
 ```bash
-python train.py --trigger-type blending --target-class 0 --epochs 10 --save-model models/blended_model.pth
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
 ```
-*Note: A bash script `train_advanced_attacks.sh` is provided to generate multiple offensive models in sequence.*
 
-### 2. Evaluating Defenses (Enterprise MLOps Dashboard)
-The project now features a high-performance, distributed MLOps architecture using a Next.js frontend, FastAPI backend, and Celery for asynchronous GPU processing.
-
-**Step A: Start the Message Broker (Redis)**
-Celery requires Redis to queue the forensic tasks.
+#### **2. Start the Message Broker (Redis)**
+Celery requires Redis to queue forensic tasks.
 ```bash
 redis-server
 ```
 
-**Step B: Start the CUDA GPU Worker (Celery)**
-Run this in a new terminal to process the heavy Neural Cleanse audits (requires Python venv):
+#### **3. Start the CUDA GPU Worker (Celery)**
+In a **new terminal** (ensure your venv is activated), start the background worker:
 ```bash
 celery -A celery_worker worker --loglevel=info
 ```
 
-**Step C: Start the Python API**
-Run this in a third terminal to connect the UI to the worker (requires Python venv):
+#### **4. Start the Python API (FastAPI)**
+In a **third terminal** (ensure your venv is activated), start the API server:
 ```bash
 uvicorn api:app --host 0.0.0.0 --port 8000
 ```
 
-**Step D: Launch the Enterprise UI Dashboard**
-Finally, start the React/Next.js frontend:
+#### **5. Launch the Enterprise UI Dashboard (Next.js)**
+In a **fourth terminal**, navigate to the frontend directory and start the dev server:
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
+Navigate to [http://localhost:3000](http://localhost:3000) to view the MLOps dashboard.
 
-Navigate to `http://localhost:3000` to access the Risk Fusion MLOps dashboard.
+---
 
-*(Alternatively, you can run the entire suite automatically using Docker: `docker-compose up --build`)*
+## 🧪 Terminal Operations & Evaluations
 
-### 3. Evaluating Model Sanitization
-To evaluate the deep sanitization techniques (Fine-Pruning metrics and Unlearning) in the terminal:
+For researchers and developers, you can run detailed attacks and evaluations directly from the CLI.
+
+### Simulating Attacks (Training Poisoned Models)
+Use the `train.py` script to generate models injected with triggers. Models are saved in the `models/` directory.
+
+```bash
+# Example: Train a model with a Blending attack targeting class 0
+python train.py --trigger-type blending --target-class 0 --epochs 10 --save-model models/blended_model.pth
+
+# Alternative: Generate multiple offensive models in sequence
+bash train_advanced_attacks.sh
+```
+
+### Training the RiskMetaClassifier
+Train the meta-classifier using forensic telemetry data generated from various detection algorithms:
+```bash
+python train_meta_classifier.py
+```
+
+### Evaluating Model Sanitization
+Test the defense mechanisms (Fine-Pruning and Unlearning) directly in the terminal:
 ```bash
 python sanitize_model.py --model-path models/poisoned_model.pth --target-class 0
 ```
 
-## Structure
-* `dataset.py`: CIFAR-10 data loading and runtime trigger injection (poisoning) logic.
-* `models.py`: ResNet18 architecture definition.
-* `train.py`: Main training loop for simulating attacks.
-* `defenses.py`: Core defensive algorithms (Neural Cleanse, STRIP, Spectral Signatures, Fine-Pruning, Unlearning).
-* `eval_defenses.py` / `sanitize_model.py`: Terminal evaluation scripts.
-* `app.py`: Streamlit-based Interactive UI.
+---
 
-## Acknowledgements
-Inspired by methodologies explored in advanced adversarial machine learning literature, specifically referencing implementations discussed for Neutral Cleanse, STRIP, and Spectral Signatures.
+## 📂 Project Structure
+
+* **`api.py` & `celery_worker.py`**: The FastAPI server and Celery worker definitions.
+* **`frontend/`**: The Next.js 15 React application, featuring dynamic Step-by-Step interactive animations (`page.tsx`).
+* **`dataset.py` & `gtsrb_dataset.py`**: Dataset loaders and runtime trigger injection (poisoning) logic.
+* **`models.py`**: Deep Learning architecture definitions (e.g., ResNet18).
+* **`train.py`**: Main training loop for simulating Trojan attacks.
+* **`defenses.py`**: Core mathematical defensive algorithms (Neural Cleanse, STRIP, DB-SVD, Fine-Pruning, Unlearning).
+* **`train_meta_classifier.py`**: Training script for the telemetry `RiskMetaClassifier`.
+* **`eval_defenses.py` / `sanitize_model.py` / `evaluate_fusion_framework.py`**: Terminal-based evaluation scripts.
+* **`.github/workflows/`**: Continuous Integration pipelines.
+* **`setup_ssh.sh`**: Helper utility for establishing remote SSH bindings inside Nautilus clusters.
+
+---
+
+## 🙏 Acknowledgements
+Inspired by methodologies explored in advanced adversarial machine learning literature, specifically referencing fundamental implementations for *Neural Cleanse, STRIP*, and *Spectral Signatures*.
