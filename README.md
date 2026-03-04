@@ -51,14 +51,38 @@ python train.py --trigger-type blending --target-class 0 --epochs 10 --save-mode
 ```
 *Note: A bash script `train_advanced_attacks.sh` is provided to generate multiple offensive models in sequence.*
 
-### 2. Evaluating Defenses (Interactive UI)
-The easiest way to evaluate the defenses (Neural Cleanse, STRIP, Spectral Signatures, and Fine-Pruning) is via the provided interactive Streamlit web application.
+### 2. Evaluating Defenses (Enterprise MLOps Dashboard)
+The project now features a high-performance, distributed MLOps architecture using a Next.js frontend, FastAPI backend, and Celery for asynchronous GPU processing.
 
-To launch the UI:
+**Step A: Start the Message Broker (Redis)**
+Celery requires Redis to queue the forensic tasks.
 ```bash
-streamlit run app.py
+redis-server
 ```
-This will open a dashboard in your browser where you can select a trained model checkpoint, set its attack parameters, and execute the defensive evaluations dynamically.
+
+**Step B: Start the CUDA GPU Worker (Celery)**
+Run this in a new terminal to process the heavy Neural Cleanse audits (requires Python venv):
+```bash
+celery -A celery_worker worker --loglevel=info
+```
+
+**Step C: Start the Python API**
+Run this in a third terminal to connect the UI to the worker (requires Python venv):
+```bash
+uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+**Step D: Launch the Enterprise UI Dashboard**
+Finally, start the React/Next.js frontend:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Navigate to `http://localhost:3000` to access the Risk Fusion MLOps dashboard.
+
+*(Alternatively, you can run the entire suite automatically using Docker: `docker-compose up --build`)*
 
 ### 3. Evaluating Model Sanitization
 To evaluate the deep sanitization techniques (Fine-Pruning metrics and Unlearning) in the terminal:
