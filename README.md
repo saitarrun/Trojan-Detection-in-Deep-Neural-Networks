@@ -20,7 +20,7 @@
 ---
 
 ## 📌 Table of Contents
-- [Demo](#-demo)
+
 - [Architecture](#-architecture)
 - [Features](#-features)
 - [5-minute Quickstart (Docker Compose)](#-5-minute-quickstart-docker-compose)
