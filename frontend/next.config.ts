@@ -1,16 +1,17 @@
 import type { NextConfig } from "next";
 
-// Based on your URL: https://csuf-titans.nrp-nautilus.io/user/saitarrunpitta@csu.fullerton.edu/lab
-// The proxy prefix is everything before /lab
+// The proxy prefix from your URL: https://csuf-titans.nrp-nautilus.io/user/saitarrunpitta@csu.fullerton.edu/lab
 const prefix = "/user/saitarrunpitta@csu.fullerton.edu/proxy/3000";
 
 const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
 
-  // These are critical for JupyterHub Proxy to load CSS/JS correctly
-  basePath: prefix,
+  // We REMOVE basePath because it causes 404s on the proxy.
+  // We KEEP assetPrefix to ensure CSS/JS load from the correct subpath.
   assetPrefix: prefix,
+
+  // This helps the proxy handle sub-routes
   trailingSlash: true,
 
   async rewrites() {
