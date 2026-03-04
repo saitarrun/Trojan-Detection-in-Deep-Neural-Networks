@@ -303,6 +303,61 @@ def run_model_scan_task(self, model_path, target_class, trigger_type):
         natural_sensitivity=details['natural_sensitivity']
     )
     details.update(fusion_details)
+
+    # 8. Forensic Reasoning Generation (New)
+    forensic_analysis = []
+    
+    # Neural Cleanse Reasoning
+    if details['nc_anomaly_indices']:
+        forensic_analysis.append({
+            "method": "Neural Cleanse",
+            "layer": "Trigger Inversion (Feature Layer)",
+            "reasoning": f"Identified a persistent latent trigger pattern for Class {target_class}. The anomaly index of {max(details['nc_anomaly_indices']):.2f} exceeds the Median Absolute Deviation threshold, suggesting a non-natural shortcut was injected during training.",
+            "severity": "CRITICAL" if max(details['nc_anomaly_indices']) > 1.8 else "HIGH" if max(details['nc_anomaly_indices']) > 1.5 else "MEDIUM"
+        })
+
+    # STRIP Reasoning
+    if details['strip_fr_ratio'] > 0.2:
+        forensic_analysis.append({
+            "method": "STRIP",
+            "layer": "Runtime Entropy (Behavior Layer)",
+            "reasoning": "Observed suspiciously low prediction entropy when inputs were heavily perturbed. This 'prediction lock' is a classic signature of a Trojan trigger overriding natural features.",
+            "severity": "HIGH"
+        })
+
+    # Activation Clustering Reasoning
+    if details['clustering_silhouette_score'] > 0.10:
+        forensic_analysis.append({
+            "method": "Clustering Analysis",
+            "layer": "Activation Space (Representational Layer)",
+            "reasoning": f"Found two distinct clusters in the {model.feature_layer_name} layer activations for Class {target_class}. This indicates the class is being activated by two fundamentally different feature sets (clean vs. poison).",
+            "severity": "CRITICAL" if details['clustering_silhouette_score'] > 0.15 else "HIGH"
+        })
+    elif details['clustering_silhouette_score'] > 0.02:
+        forensic_analysis.append({
+            "method": "Clustering Analysis",
+            "layer": "Activation Space (Representational Layer)",
+            "reasoning": "Detected weak bifurcations in the activation space. While not a definitive cluster, it suggests slight representation divergence.",
+            "severity": "MEDIUM"
+        })
+    elif details['clustering_silhouette_score'] > 0:
+         forensic_analysis.append({
+            "method": "Clustering Analysis",
+            "layer": "Activation Space",
+            "reasoning": "Activation space is relatively uniform. No significant bifurcation of features detected.",
+            "severity": "LOW"
+        })
+
+    # Weight Analysis Reasoning
+    if details['weight_analysis_risk'] > 0.6:
+        forensic_analysis.append({
+            "method": "Linear Weight Audit",
+            "layer": "Static Weights (Model Layer)",
+            "reasoning": "Detected irregular distribution in the final linear layer weights. The outlier norm suggests specific neurons have been 'over-indexed' to trigger on specific pixel patterns.",
+            "severity": "MEDIUM"
+        })
+
+    details['forensic_analysis'] = forensic_analysis
     
     # 8. Grad-CAM Mechanics
     self.update_state(state='PROGRESS', meta={'message': 'Generating Visual Forensics...'})

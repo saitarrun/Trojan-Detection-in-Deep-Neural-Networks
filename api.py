@@ -50,6 +50,36 @@ class AsyncScanResponse(BaseModel):
     task_id: str
     message: str
 
+class LocalPathScanRequest(BaseModel):
+    model_path: str
+    target_class: int = 0
+    trigger_type: str = "checkerboard"
+
+@app.post("/api/v1/scan-local-path", response_model=AsyncScanResponse)
+async def scan_local_path(request: LocalPathScanRequest):
+    """
+    Triggers an audit for a model file already existing on the server filesystem.
+    This bypasses the 528MB+ upload limit of proxies/ingresses.
+    """
+    if not os.path.exists(request.model_path):
+        raise HTTPException(status_code=404, detail="Model file not found on server.")
+        
+    valid_extensions = (".pth", ".pt", ".onnx")
+    if not any(request.model_path.endswith(ext) for ext in valid_extensions):
+        raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {valid_extensions}")
+
+    try:
+        from celery_worker import run_model_scan_task
+        task = run_model_scan_task.delay(request.model_path, request.target_class, request.trigger_type)
+        
+        return AsyncScanResponse(
+            status="accepted",
+            task_id=task.id,
+            message=f"Local model {os.path.basename(request.model_path)} accepted for analysis."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to submit local model: {str(e)}")
+
 @app.post("/api/v1/scan-model", response_model=AsyncScanResponse)
 async def scan_model_async(
     model_file: UploadFile = File(...),

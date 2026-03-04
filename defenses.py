@@ -27,7 +27,7 @@ class NeuralCleanse:
         criterion = nn.CrossEntropyLoss()
         
         last_loss = float('inf')
-        patience = 2
+        patience = 5
         trigger_found_count = 0
         
         # We only need a small subset of data for this optimization
@@ -103,7 +103,8 @@ class NeuralCleanse:
             if mad < 1e-4: mad = 1e-4
             anomaly_index = np.abs(mask_sizes - median) / (mad * 1.4826)
             print("\nAnomaly indices:", np.round(anomaly_index, 2))
-            flagged_classes = np.where(anomaly_index > 2.0)[0]
+            # Aggressive Tuning: Lowered MAD threshold from 2.0 to 1.5
+            flagged_classes = np.where(anomaly_index > 1.5)[0]
         else:
             # For targeted scans, we just return the single class if it looks abnormal (heuristic)
             flagged_classes = np.array([target_class]) if target_class is not None else np.array([])
@@ -121,9 +122,9 @@ class STRIP:
     def _superimpose(self, img1, img2, alpha=0.5):
         return alpha * img1 + (1 - alpha) * img2
 
-    def calculate_entropy(self, input_tensor, num_samples=32):
+    def calculate_entropy(self, input_tensor, num_samples=64):
         # input_tensor: [C, H, W]
-        # Sample N clean images
+        # Sample N clean images (Aggressive Tuning: Increased to 64 for tighter bounds)
         indices = np.random.choice(len(self.clean_dataset), num_samples, replace=False)
         perturbed_inputs = []
         
@@ -558,14 +559,15 @@ class RiskFusionEngine:
         """
         Anomaly index usually needs to be > 2.0 to be flagged.
         We cap it at 4.0 for a max score of 1.0 (100% risk).
+        Aggressive Tuning: Lowered threshold to 1.5
         """
         if len(anomaly_indices) == 0:
             return 0.0
         max_idx = np.max(anomaly_indices)
-        if max_idx < 2.0:
+        if max_idx < 1.5:
             return 0.0
         
-        normalized = (max_idx - 2.0) / 2.0
+        normalized = (max_idx - 1.5) / 2.5
         return min(max(normalized, 0.0), 1.0)
         
     def normalize_strip(self, false_rejections_ratio, false_acceptances_ratio):
@@ -583,26 +585,28 @@ class RiskFusionEngine:
         """
         Silhouette > 0.1 strongly implies an artificial cluster (Trojan).
         Score range: [-1, 1]. Cap risk at score = 0.25
+        Aggressive Tuning: Lowered activation threshold to 0.02
         """
-        if silhouette_score < 0.05:
+        if silhouette_score < 0.02:
             return 0.0
             
-        normalized = (silhouette_score - 0.05) / 0.20
+        normalized = (silhouette_score - 0.02) / 0.23
         return min(max(normalized, 0.0), 1.0)
         
     def normalize_weight_analysis(self, anomaly_indices):
         """
         Anomaly index based on MAD. Scores > 2.5 are flagged.
         Cap at 5.0 for a max score of 1.0.
+        Aggressive Tuning: Lowered baseline to 1.8
         """
         if len(anomaly_indices) == 0:
             return 0.0
             
         max_idx = np.max(anomaly_indices)
-        if max_idx < 2.5:
+        if max_idx < 1.8:
             return 0.0
             
-        normalized = (max_idx - 2.5) / 2.5
+        normalized = (max_idx - 1.8) / 3.2
         return min(max(normalized, 0.0), 1.0)
 
     def calculate_unified_risk(self, nc_anomaly_indices, strip_fr_ratio, strip_fa_ratio, clustering_score, wa_anomaly_indices=None, natural_sensitivity=0.0):
@@ -703,7 +707,8 @@ class WeightAnalysis:
         anomaly_indices = np.abs(norms - median_norm) / mad
         
         # MAD anomaly threshold is typically > 2.0 or 3.0
-        flagged_classes = np.where(anomaly_indices > 2.5)[0]
+        # Aggressive Tuning: Lowered threshold from 2.5 to 1.8
+        flagged_classes = np.where(anomaly_indices > 1.8)[0]
         
         print(f"   Median L2 Norm: {median_norm:.4f}, MAD: {mad:.4f}")
         if len(flagged_classes) > 0:

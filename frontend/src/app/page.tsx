@@ -40,6 +40,8 @@ export default function Dashboard() {
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [useLocalPath, setUseLocalPath] = useState(false);
+  const [localPath, setLocalPath] = useState("");
 
   const triggerOptions = [
     "Auto-Detect (Black-Box)",
@@ -60,7 +62,8 @@ export default function Dashboard() {
   };
 
   const startScan = async () => {
-    if (!selectedFile) return;
+    if (!useLocalPath && !selectedFile) return;
+    if (useLocalPath && !localPath) return;
 
     setIsScanning(true);
     setError(null);
@@ -68,21 +71,36 @@ export default function Dashboard() {
     setProgress(10);
     setScanStatus("INITIALIZING");
 
-    const formData = new FormData();
-    formData.append('model_file', selectedFile);
-    formData.append('target_class', targetClass);
-    formData.append('trigger_type', triggerType);
-
-    const fetchUrl = `${API_BASE}/api/v1/scan-model`;
-
     try {
-      const response = await fetch(fetchUrl, {
-        method: 'POST',
-        body: formData,
-        cache: 'no-store'
-      });
+      let response;
+      if (useLocalPath) {
+        response = await fetch(`${API_BASE}/api/v1/scan-local-path`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model_path: localPath,
+            target_class: parseInt(targetClass),
+            trigger_type: triggerType
+          }),
+          cache: 'no-store'
+        });
+      } else {
+        const formData = new FormData();
+        formData.append('model_file', selectedFile!);
+        formData.append('target_class', targetClass);
+        formData.append('trigger_type', triggerType);
 
-      if (!response.ok) throw new Error("Audit initiation failed.");
+        response = await fetch(`${API_BASE}/api/v1/scan-model`, {
+          method: 'POST',
+          body: formData,
+          cache: 'no-store'
+        });
+      }
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || "Audit initiation failed.");
+      }
 
       const data = await response.json();
       setTaskId(data.task_id);
@@ -201,21 +219,40 @@ export default function Dashboard() {
 
         <div className="stagger-1" style={{ display: 'flex', flexDirection: 'column', gap: '1.8rem' }}>
           <div>
-            <label className="label">Neural Model Source</label>
-            <div
-              className="glass-hover"
-              style={{
-                marginTop: '0.6rem', border: '2px dashed var(--card-border)', padding: '2rem 1.5rem',
-                textAlign: 'center', cursor: 'pointer', borderRadius: '16px', transition: 'all 0.3s ease'
-              }}
-              onClick={() => document.getElementById('file-upload')?.click()}
-            >
-              <Upload size={28} style={{ color: 'var(--accent)', marginBottom: '0.75rem', opacity: 0.8 }} />
-              <p style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 500 }}>
-                {selectedFile ? selectedFile.name : "Drop .pth or .onnx bundle"}
-              </p>
-              <input id="file-upload" type="file" style={{ display: 'none' }} onChange={handleFileChange} accept=".pth,.onnx" />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+              <label className="label">Neural Model Source</label>
+              <button
+                onClick={() => setUseLocalPath(!useLocalPath)}
+                style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                {useLocalPath ? "Switch to Upload" : "Use Server Path"}
+              </button>
             </div>
+
+            {useLocalPath ? (
+              <input
+                type="text"
+                className="input-field"
+                placeholder="/path/to/model.pth"
+                value={localPath}
+                onChange={(e) => setLocalPath(e.target.value)}
+              />
+            ) : (
+              <div
+                className="glass-hover"
+                style={{
+                  border: '2px dashed var(--card-border)', padding: '2rem 1.5rem',
+                  textAlign: 'center', cursor: 'pointer', borderRadius: '16px', transition: 'all 0.3s ease'
+                }}
+                onClick={() => document.getElementById('file-upload')?.click()}
+              >
+                <Upload size={28} style={{ color: 'var(--accent)', marginBottom: '0.75rem', opacity: 0.8 }} />
+                <p style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 500 }}>
+                  {selectedFile ? selectedFile.name : "Drop .pth or .onnx bundle"}
+                </p>
+                <input id="file-upload" type="file" style={{ display: 'none' }} onChange={handleFileChange} accept=".pth,.onnx" />
+              </div>
+            )}
           </div>
 
           <div>
@@ -237,7 +274,7 @@ export default function Dashboard() {
             </select>
           </div>
 
-          <button className="button-primary" onClick={startScan} disabled={!selectedFile || isScanning} style={{ width: '100%', marginTop: '0.5rem' }}>
+          <button className="button-primary" onClick={startScan} disabled={(!useLocalPath && !selectedFile) || (useLocalPath && !localPath) || isScanning} style={{ width: '100%', marginTop: '0.5rem' }}>
             {isScanning ? <Loader2 className="animate-spin" size={20} /> : <Zap size={20} className="fill-current" />}
             {isScanning ? "Scrutinizing..." : "Execute Enterprise Audit"}
           </button>
@@ -446,14 +483,39 @@ export default function Dashboard() {
                       </div>
                     </div>
                   ) : (
-                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', opacity: 0.2 }}>
-                      <Activity size={64} style={{ marginBottom: '1.5rem' }} />
-                      <p style={{ fontWeight: 700 }}>Visual telemetry offline for this architecture.</p>
+                    <div style={{ height: '100%', display: 'flex', flexWrap: 'wrap', content: 'center', opacity: 0.1 }}>
+                      <Activity size={100} />
                     </div>
                   )}
                 </div>
               </div>
             </div>
+
+            {/* NEW: Forensic Analysis Breakdown */}
+            {result.details.forensic_analysis && result.details.forensic_analysis.length > 0 && (
+              <div className="card glass stagger-3" style={{ marginTop: '2.5rem', padding: '2.5rem' }}>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.2rem', fontWeight: 800, marginBottom: '2rem' }}>
+                  <Shield size={22} color="var(--accent)" />
+                  Forensic Discovery Narrative
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: '2rem' }}>
+                  {result.details.forensic_analysis.map((item: any, idx: number) => (
+                    <div key={idx} className="glass-hover" style={{ padding: '1.5rem', borderLeft: `4px solid ${item.severity === 'CRITICAL' ? 'var(--danger)' : item.severity === 'HIGH' ? 'var(--warning)' : 'var(--accent)'}`, background: 'rgba(255,255,255,0.02)', borderRadius: '0 12px 12px 0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+                        <div>
+                          <p style={{ fontSize: '0.65rem', fontWeight: 900, letterSpacing: '1px', color: 'var(--accent)' }}>{item.method.toUpperCase()} AUDIT</p>
+                          <p style={{ fontSize: '0.8rem', fontWeight: 600, color: '#94a3b8' }}>{item.layer}</p>
+                        </div>
+                        <span className={`badge ${item.severity === 'CRITICAL' ? 'badge-danger' : 'badge-warning'}`} style={{ fontSize: '0.6rem' }}>{item.severity}</span>
+                      </div>
+                      <p style={{ fontSize: '0.9rem', lineHeight: 1.6, color: 'rgba(255,255,255,0.8)' }}>
+                        {item.reasoning}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
