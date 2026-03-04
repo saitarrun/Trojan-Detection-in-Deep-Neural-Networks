@@ -14,6 +14,11 @@ const nextConfig: NextConfig = {
   // This helps the proxy handle sub-routes
   trailingSlash: true,
 
+  // Fix Cross-Origin Dev Warnings on Nautilus
+  experimental: {
+    allowedDevOrigins: ["csuf-titans.nrp-nautilus.io"],
+  },
+
   async rewrites() {
     return [
       {
