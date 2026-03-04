@@ -1,22 +1,26 @@
 import type { NextConfig } from "next";
 
+const isNautilus = typeof process !== 'undefined' && process.env.JUPYTERHUB_SERVICE_PREFIX;
+const basePath = isNautilus ? `${process.env.JUPYTERHUB_SERVICE_PREFIX}proxy/3000` : '';
+
 const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
+  basePath: basePath,
+  assetPrefix: basePath,
   async rewrites() {
+    const apiDest = isNautilus
+      ? `${process.env.JUPYTERHUB_SERVICE_PREFIX}proxy/8000`
+      : 'http://localhost:8000';
+
     return [
       {
         source: '/api/:path*',
-        destination: 'http://api:8000/api/:path*',
+        destination: `${apiDest}/api/:path*`,
       },
       {
         source: '/health',
-        destination: 'http://api:8000/health',
-      },
-      // Keep support for raw localhost for dev mode outside docker
-      {
-        source: '/local-api/:path*',
-        destination: 'http://localhost:8000/api/:path*',
+        destination: `${apiDest}/health`,
       }
     ];
   },
