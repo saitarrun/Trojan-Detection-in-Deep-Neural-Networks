@@ -148,5 +148,5 @@ python sanitize_model.py --model-path models/poisoned_model.pth --target-class 0
 
 ---
 
-## 🙏 Acknowledgements
+## Acknowledgements
 Inspired by methodologies explored in advanced adversarial machine learning literature, specifically referencing fundamental implementations for *Neural Cleanse, STRIP*, and *Spectral Signatures*.
