@@ -73,11 +73,7 @@ export default function Dashboard() {
     formData.append('target_class', targetClass);
     formData.append('trigger_type', triggerType);
 
-    const directApiBase = typeof window !== 'undefined'
-      ? `${window.location.protocol}//${window.location.hostname}:8000`
-      : "http://localhost:8000";
-
-    const fetchUrl = `${directApiBase}/api/v1/scan-model`;
+    const fetchUrl = `${API_BASE}/api/v1/scan-model`;
 
     try {
       const response = await fetch(fetchUrl, {
