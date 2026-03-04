@@ -60,7 +60,8 @@ def benchmark_professional_audit(model_type="densenet121"):
     # A. Neural Cleanse (High Res)
     print("     ▶ Running Neural Cleanse...")
     nc = NeuralCleanse(wrapper, device, num_classes=1000) # ImageNet scale
-    _, sizes, _ = nc.detect(loader_clean, epochs=1)
+    # Perform a targeted audit on class 0 to save time (discovery for 1000 classes is slow)
+    _, sizes, _ = nc.detect(loader_clean, epochs=1, target_class=0)
     nc_anomaly = []
     if len(sizes) > 0:
         median = np.median(sizes)

@@ -13,9 +13,13 @@ class NeuralCleanse:
         self.model.eval()
 
     def reverse_engineer_trigger(self, target_class, dataloader, epochs=5, lambda_reg=1e-3):
-        # Initialize trigger mask and pattern
-        mask = torch.rand((1, self.input_shape[1], self.input_shape[2]), requires_grad=True, device=self.device)
-        pattern = torch.rand(self.input_shape, requires_grad=True, device=self.device)
+        # Dynamically determine input shape from the first batch
+        first_batch = next(iter(dataloader))[0]
+        actual_shape = first_batch.shape[1:] # (C, H, W)
+        
+        # Initialize trigger mask and pattern based on actual resolution
+        mask = torch.rand((1, actual_shape[1], actual_shape[2]), requires_grad=True, device=self.device)
+        pattern = torch.rand(actual_shape, requires_grad=True, device=self.device)
         
         optimizer = optim.Adam([mask, pattern], lr=0.1)
         criterion = nn.CrossEntropyLoss()
