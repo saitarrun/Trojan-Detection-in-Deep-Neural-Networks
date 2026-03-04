@@ -14,7 +14,8 @@ class TrojAI_ModelWrapper(nn.Module):
         if isinstance(model_path_or_model, str):
             # Load the raw TrojAI model from .pt file
             # Note: TrojAI models are typically saved as entire model objects, not just state_dicts
-            self.model = torch.load(model_path_or_model, map_location=device)
+            # We set weights_only=False to allow loading these full architecture objects.
+            self.model = torch.load(model_path_or_model, map_location=device, weights_only=False)
         else:
             self.model = model_path_or_model
             
