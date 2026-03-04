@@ -116,7 +116,7 @@ def run_model_scan_task(self, model_path, target_class, trigger_type):
     print(f"[{self.request.id}] Starting scan on {model_path}")
     
     # Use CUDA on Nautilus for massive speedup (50x+)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
     print(f"[{self.request.id}] Using device: {device}")
     
     # 1. Load the Model (Support both .pth and .onnx)
