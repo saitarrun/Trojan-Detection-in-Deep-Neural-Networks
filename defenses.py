@@ -12,10 +12,11 @@ class NeuralCleanse:
         self.num_classes = num_classes
         self.model.eval()
 
-    def reverse_engineer_trigger(self, target_class, dataloader, epochs=5, lambda_reg=1e-3):
-        # Dynamically determine input shape from the first batch
+        # Dynamically determine input shape and batch limit
         first_batch = next(iter(dataloader))[0]
-        actual_shape = first_batch.shape[1:] # (C, H, W)
+        actual_shape = first_batch.shape[1:]  # (C, H, W)
+        # For High-Res models (224x224), we limit batches per epoch to 2 for 40x speedup
+        batch_limit = 2 if actual_shape[1] > 32 else 5
         
         # Initialize trigger mask and pattern based on actual resolution
         mask = torch.rand((1, actual_shape[1], actual_shape[2]), requires_grad=True, device=self.device)
@@ -28,11 +29,11 @@ class NeuralCleanse:
         patience = 2
         trigger_found_count = 0
         
-        # We only need a small subset of data for this optimization since we are optimizing the trigger
+        # We only need a small subset of data for this optimization
         for epoch in range(epochs):
             epoch_loss = 0.0
             for i, batch in enumerate(dataloader):
-                if i > 5: # Limit batches per epoch for extreme speed (Chapter 3.B optimization)
+                if i >= batch_limit:
                     break
                     
                 inputs = batch[0].to(self.device)

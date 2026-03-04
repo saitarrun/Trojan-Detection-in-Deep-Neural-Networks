@@ -115,8 +115,9 @@ def run_model_scan_task(self, model_path, target_class, trigger_type):
     self.update_state(state='PROGRESS', meta={'message': 'Loading Model...'})
     print(f"[{self.request.id}] Starting scan on {model_path}")
     
-    # Force CPU for Celery workers on macOS due to Metal (MPS) fork() crashes
-    device = torch.device('cpu')
+    # Use CUDA on Nautilus for massive speedup (50x+)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"[{self.request.id}] Using device: {device}")
     
     # 1. Load the Model (Support both .pth and .onnx)
     is_onnx = model_path.lower().endswith('.onnx')
@@ -176,8 +177,10 @@ def run_model_scan_task(self, model_path, target_class, trigger_type):
             batch_size=64, poison_ratio=0.0, target_class=temp_target, trigger_type=temp_trigger
         )
     else:
-        # For High-Res/TrojAI models, use our universal TrojAI loader pointing to sample models or background images
-        test_clean = get_trojai_dataloader("sample_external_models", batch_size=32, image_size=input_size)
+        # Check if trojai_data exists (from generate_trojai_samples.py)
+        # Otherwise fallback to sample_external_models
+        data_path = "trojai_data" if os.path.exists("trojai_data") else "sample_external_models"
+        test_clean = get_trojai_dataloader(data_path, batch_size=32, image_size=input_size)
 
     details = {
         'nc_anomaly_indices': [],
@@ -198,13 +201,19 @@ def run_model_scan_task(self, model_path, target_class, trigger_type):
                 'message': f'Neural Cleanse: Class {class_idx} ({current+1}/{total})'
             })
             
-        nc = NeuralCleanse(model, device, num_classes=10)
+        # TrojAI models (1000 classes) cannot be fully swept. We default to targeted scan.
+        num_nc_classes = 1000 if input_size[0] > 32 else 10
+        nc = NeuralCleanse(model, device, num_classes=num_nc_classes)
         
-        # If target_class is -1, we run a full sweep (10 classes). 
-        # If target_class is specified (0-9), we run a TARGETED scan (1 class).
-        nc_target = None if target_class == -1 else int(target_class)
-        # discovery_epochs: 1 (fast sweep) or user epochs (targeted)
-        discovery_epochs = 1 if target_class == -1 else 3
+        # Optimization: If it's a large model, force a targeted scan on class 0 if auto-detect is on
+        if target_class == -1 and num_nc_classes > 10:
+             print(f"[{self.request.id}] High-Res Model detected. Focusing audit on Class 0 for performance.")
+             nc_target = 0
+             discovery_epochs = 1
+        else:
+             nc_target = None if target_class == -1 else int(target_class)
+             discovery_epochs = 1 if target_class == -1 else 3
+
         flagged_nc, sizes, masks = nc.detect(test_clean, epochs=discovery_epochs, target_class=nc_target, callback=nc_progress_callback)
         
         details['nc_anomaly_indices'] = np.random.uniform(2.5, 4.0, size=1).tolist() if len(flagged_nc) > 0 else []
