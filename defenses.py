@@ -12,6 +12,7 @@ class NeuralCleanse:
         self.num_classes = num_classes
         self.model.eval()
 
+    def reverse_engineer_trigger(self, target_class, dataloader, epochs=3, lambda_reg=1e-3):
         # Dynamically determine input shape and batch limit
         first_batch = next(iter(dataloader))[0]
         actual_shape = first_batch.shape[1:]  # (C, H, W)
