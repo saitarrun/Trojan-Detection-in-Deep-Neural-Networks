@@ -486,6 +486,74 @@ export default function Dashboard() {
 
         {result && (
           <div className="stagger-1">
+
+            {/* ── VERDICT BANNER ── */}
+            {(() => {
+              const infected = result.fusion_risk_score > 0.5;
+              const borderColor = infected ? 'var(--danger)' : 'var(--success)';
+              const bgColor = infected ? 'rgba(239,68,68,0.08)' : 'rgba(16,185,129,0.07)';
+              const glowColor = infected ? 'rgba(239,68,68,0.25)' : 'rgba(16,185,129,0.2)';
+              return (
+                <div style={{
+                  background: bgColor,
+                  border: `2px solid ${borderColor}`,
+                  borderRadius: '20px',
+                  padding: '2rem 2.5rem',
+                  marginBottom: '2rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '1.5rem',
+                  boxShadow: `0 0 40px ${glowColor}`,
+                  animation: infected ? 'verdict-pulse 2.5s ease-in-out infinite' : 'none',
+                }}>
+                  {/* Icon */}
+                  <div style={{
+                    width: '64px', height: '64px', borderRadius: '50%',
+                    background: infected ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)',
+                    border: `2px solid ${borderColor}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
+                  }}>
+                    {infected
+                      ? <AlertTriangle size={30} color="var(--danger)" />
+                      : <ShieldCheck size={30} color="var(--success)" />
+                    }
+                  </div>
+
+                  {/* Text */}
+                  <div style={{ flex: 1 }}>
+                    <p style={{ fontSize: '0.65rem', fontWeight: 900, letterSpacing: '2px', color: borderColor, marginBottom: '0.3rem' }}>
+                      AUDIT VERDICT
+                    </p>
+                    <h2 style={{ fontSize: '2rem', fontWeight: 900, letterSpacing: '-0.03em', color: '#fff', marginBottom: '0.4rem' }}>
+                      {infected ? '⚠️ TROJAN DETECTED' : '✅ MODEL IS CLEAN'}
+                    </h2>
+                    <p style={{ fontSize: '0.88rem', color: '#94a3b8', lineHeight: 1.5, maxWidth: '600px' }}>
+                      {infected
+                        ? `This model exhibits strong Trojan indicators across multiple forensic channels. Confidence: ${(result.fusion_risk_score * 100).toFixed(0)}%. Do NOT deploy in a production environment.`
+                        : `No Trojan implants were detected. The model passed all 6 forensic defense channels. Risk score: ${(result.fusion_risk_score * 100).toFixed(0)}%. Safe for deployment.`
+                      }
+                    </p>
+                  </div>
+
+                  {/* Score pill */}
+                  <div style={{
+                    padding: '1rem 2rem',
+                    borderRadius: '14px',
+                    background: infected ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.12)',
+                    border: `1px solid ${borderColor}`,
+                    textAlign: 'center',
+                    flexShrink: 0,
+                  }}>
+                    <p style={{ fontSize: '0.6rem', fontWeight: 800, letterSpacing: '1.5px', color: borderColor, marginBottom: '0.2rem' }}>RISK SCORE</p>
+                    <p style={{ fontSize: '2.2rem', fontWeight: 900, lineHeight: 1, color: '#fff' }}>
+                      {(result.fusion_risk_score * 100).toFixed(0)}<span style={{ fontSize: '1rem', opacity: 0.5 }}>%</span>
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* ── Top Score Banner ── */}
             <div className="card glass stagger-1" style={{ borderLeft: `6px solid ${result.fusion_risk_score > 0.5 ? 'var(--danger)' : 'var(--success)'}`, padding: '2.5rem', marginBottom: '2.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem' }}>
               <div>
@@ -635,6 +703,12 @@ export default function Dashboard() {
           0% { transform: scale(1); box-shadow: 0 0 0 0 var(--accent-glow); }
           70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
           100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+        }
+
+        @keyframes verdict-pulse {
+          0%   { box-shadow: 0 0 30px rgba(239,68,68,0.2); }
+          50%  { box-shadow: 0 0 60px rgba(239,68,68,0.45); }
+          100% { box-shadow: 0 0 30px rgba(239,68,68,0.2); }
         }
 
         .telemetry-row {
