@@ -18,8 +18,88 @@ import {
   Server,
   Database,
   Cpu,
-  BarChart3
+  BarChart3,
+  GitBranch,
+  TrendingUp
 } from 'lucide-react';
+import {
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  ResponsiveContainer,
+  Tooltip,
+  Legend
+} from 'recharts';
+
+// ─── Signal Gauge Component ─────────────────────────────────────────────────
+function SignalGauge({ label, value, max = 1.0 }: { label: string; value: number; max?: number }) {
+  const pct = Math.min((value / max) * 100, 100);
+  const color = pct > 70 ? '#ef4444' : pct > 40 ? '#f59e0b' : '#10b981';
+  return (
+    <div style={{ marginBottom: '1.1rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+        <span style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.5px', color: '#94a3b8' }}>{label}</span>
+        <span style={{ fontSize: '0.72rem', fontWeight: 800, color }}>{(pct).toFixed(1)}%</span>
+      </div>
+      <div style={{ height: '7px', background: 'rgba(255,255,255,0.07)', borderRadius: '4px', overflow: 'hidden' }}>
+        <div
+          style={{
+            height: '100%',
+            width: `${pct}%`,
+            background: `linear-gradient(90deg, ${color}99, ${color})`,
+            borderRadius: '4px',
+            transition: 'width 1.2s cubic-bezier(0.4,0,0.2,1)',
+            boxShadow: `0 0 8px ${color}66`
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Radar Chart Component ──────────────────────────────────────────────────
+function RiskRadarChart({ details }: { details: any }) {
+  const data = [
+    { signal: 'Neural\nCleanse', risk: +((details.neural_cleanse_risk ?? 0) * 100).toFixed(1) },
+    { signal: 'STRIP', risk: +((details.strip_risk ?? 0) * 100).toFixed(1) },
+    { signal: 'Clustering', risk: +((details.clustering_risk ?? 0) * 100).toFixed(1) },
+    { signal: 'Weight\nAudit', risk: +((details.weight_analysis_risk ?? 0) * 100).toFixed(1) },
+    { signal: 'Natural\nTrojan', risk: +((details.natural_trojan_risk ?? 0) * 100).toFixed(1) },
+    { signal: 'Gradient\nSimilarity', risk: +((details.gradient_similarity_risk ?? 0) * 100).toFixed(1) },
+  ];
+  return (
+    <ResponsiveContainer width="100%" height={280}>
+      <RadarChart data={data} margin={{ top: 10, right: 30, bottom: 10, left: 30 }}>
+        <PolarGrid stroke="rgba(255,255,255,0.08)" />
+        <PolarAngleAxis
+          dataKey="signal"
+          tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
+        />
+        <PolarRadiusAxis
+          angle={30}
+          domain={[0, 100]}
+          tick={{ fill: '#475569', fontSize: 8 }}
+          tickCount={4}
+        />
+        <Radar
+          name="Risk %"
+          dataKey="risk"
+          stroke="#6366f1"
+          fill="#6366f1"
+          fillOpacity={0.25}
+          strokeWidth={2}
+          dot={{ fill: '#6366f1', r: 4 }}
+        />
+        <Tooltip
+          contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '10px', fontSize: '0.8rem' }}
+          formatter={(v: any) => [`${v}%`, 'Risk Signal']}
+        />
+      </RadarChart>
+    </ResponsiveContainer>
+  );
+}
 
 // API Configuration
 const API_BASE = typeof window !== 'undefined'
@@ -385,7 +465,8 @@ export default function Dashboard() {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <AuditStep label="Linear Weight Audit" status={getStepStatus('LWA')} />
-                  <AuditStep label="Risk Fusion Execution" status={getStepStatus('FUSION')} />
+                  <AuditStep label="Gradient Similarity" status={getStepStatus('GS')} />
+                  <AuditStep label="6-Signal Fusion" status={getStepStatus('FUSION')} />
                 </div>
               </div>
 
@@ -405,103 +486,117 @@ export default function Dashboard() {
 
         {result && (
           <div className="stagger-1">
-            <div className="grid-cols-2">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
-                <div className="card glass stagger-2" style={{ borderLeft: `6px solid ${result.fusion_risk_score > 0.5 ? 'var(--danger)' : 'var(--success)'}`, padding: '2.5rem' }}>
-                  <label className="label" style={{ marginBottom: '1rem', display: 'block' }}>Unified Trojan Integrity Score</label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
-                    <h2 style={{ fontSize: '5.5rem', fontWeight: 900, lineHeight: 1, letterSpacing: '-0.05em' }}>
-                      {(result.fusion_risk_score * 100).toFixed(0)}<span style={{ fontSize: '2.5rem', opacity: 0.3 }}>%</span>
-                    </h2>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                      <span className={result.fusion_risk_score > 0.5 ? 'badge badge-danger' : 'badge badge-success'} style={{ fontSize: '0.85rem', padding: '0.6rem 1.5rem' }}>
-                        {result.fusion_risk_score > 0.5 ? 'CRITICAL RISK DETECTED' : 'DEEMED INTEGRITY SECURE'}
-                      </span>
-                      <p style={{ fontSize: '0.85rem', color: '#94a3b8', maxWidth: '180px', lineHeight: 1.4 }}>
-                        Weighted analysis of 5 cross-verified forensic signals.
-                      </p>
-                    </div>
-                  </div>
+            {/* ── Top Score Banner ── */}
+            <div className="card glass stagger-1" style={{ borderLeft: `6px solid ${result.fusion_risk_score > 0.5 ? 'var(--danger)' : 'var(--success)'}`, padding: '2.5rem', marginBottom: '2.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem' }}>
+              <div>
+                <label className="label" style={{ display: 'block', marginBottom: '0.5rem' }}>Unified Trojan Integrity Score</label>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '1rem' }}>
+                  <h2 style={{ fontSize: '5rem', fontWeight: 900, lineHeight: 1, letterSpacing: '-0.05em' }}>
+                    {(result.fusion_risk_score * 100).toFixed(0)}<span style={{ fontSize: '2rem', opacity: 0.3 }}>%</span>
+                  </h2>
+                  <span className={result.fusion_risk_score > 0.5 ? 'badge badge-danger' : 'badge badge-success'} style={{ fontSize: '0.8rem', padding: '0.5rem 1.2rem' }}>
+                    {result.fusion_risk_score > 0.5 ? 'CRITICAL RISK DETECTED' : 'INTEGRITY SECURE'}
+                  </span>
                 </div>
+                <p style={{ fontSize: '0.82rem', color: '#94a3b8', marginTop: '0.5rem' }}>6-signal confidence-weighted fusion · RiskFusionEngine™ v2</p>
+              </div>
+              <div style={{ display: 'flex', gap: '1rem' }}>
+                <button className="button-primary" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--card-border)', boxShadow: 'none', padding: '0.6rem 1.4rem', fontSize: '0.82rem' }} onClick={downloadReport}>
+                  <Download size={16} /> Export IARPA Report
+                </button>
+              </div>
+            </div>
 
-                <div className="card glass stagger-3">
-                  <h3 style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.2rem', fontWeight: 800 }}>
-                    <BarChart3 size={22} color="var(--accent)" />
-                    Deep Telemetry Signatures
-                  </h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                      <div className="telemetry-row">
-                        <p className="label" style={{ fontSize: '0.6rem' }}>STRIP Entropy</p>
-                        <p style={{ fontSize: '1.2rem', fontWeight: 700, marginTop: '0.2rem' }}>{result.details.strip_fr_ratio.toFixed(4)}</p>
-                      </div>
-                      <div className="telemetry-row">
-                        <p className="label" style={{ fontSize: '0.6rem' }}>AC Silhouette</p>
-                        <p style={{ fontSize: '1.2rem', fontWeight: 700, marginTop: '0.2rem' }}>{result.details.clustering_silhouette_score.toFixed(4)}</p>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                      <div className="telemetry-row">
-                        <p className="label" style={{ fontSize: '0.6rem' }}>Weight Anomaly</p>
-                        <p style={{ fontSize: '1.2rem', fontWeight: 700, marginTop: '0.2rem' }}>{result.details.weight_analysis_risk.toFixed(4)}</p>
-                      </div>
-                      <div className="telemetry-row">
-                        <p className="label" style={{ fontSize: '0.6rem' }}>Natural Bias</p>
-                        <p style={{ fontSize: '1.2rem', fontWeight: 700, marginTop: '0.2rem', color: result.details.natural_trojan_risk > 0.4 ? 'var(--warning)' : 'inherit' }}>
-                          {(result.details.natural_trojan_risk * 100).toFixed(1)}%
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: '2.5rem', padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '14px', border: '1px solid var(--card-border)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <p className="label" style={{ fontSize: '0.6rem' }}>Neural Cleanse Result</p>
-                        <p style={{ fontSize: '0.95rem', fontWeight: 700, marginTop: '0.3rem', color: result.details.nc_flagged_classes.length > 0 ? 'var(--danger)' : 'var(--success)' }}>
-                          {result.details.nc_flagged_classes.length > 0 ? `Flagged Target: Class ${result.details.nc_flagged_classes[0]}` : 'No Trigger Signatures Recorded'}
-                        </p>
-                      </div>
-                      <ShieldCheck size={24} color={result.details.nc_flagged_classes.length > 0 ? 'var(--danger)' : 'var(--success)'} style={{ opacity: 0.5 }} />
-                    </div>
-                  </div>
-
-                  <button className="button-primary stagger-4" style={{ marginTop: '2.5rem', width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--card-border)', boxShadow: 'none' }} onClick={downloadReport}>
-                    <Download size={18} />
-                    Export Forensic IARPA-Audit Report
-                  </button>
-                </div>
+            {/* ── Radar + Gauges row ── */}
+            <div className="grid-cols-2" style={{ marginBottom: '2.5rem' }}>
+              {/* Radar Chart */}
+              <div className="card glass stagger-2">
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.1rem', fontWeight: 800, marginBottom: '1.5rem' }}>
+                  <TrendingUp size={20} color="var(--accent)" />
+                  6-Signal Risk Radar
+                </h3>
+                <RiskRadarChart details={result.details} />
               </div>
 
-              <div className="card glass stagger-2" style={{ padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ padding: '2rem', borderBottom: '1px solid var(--card-border)' }}>
-                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.2rem', fontWeight: 800 }}>
-                    <Layout size={22} color="var(--accent)" />
-                    Mechanistic Interpretability
+              {/* Signal Gauges */}
+              <div className="card glass stagger-2">
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.1rem', fontWeight: 800, marginBottom: '1.8rem' }}>
+                  <BarChart3 size={20} color="var(--accent)" />
+                  Defense Signal Breakdown
+                </h3>
+                <SignalGauge label="NEURAL CLEANSE" value={result.details.neural_cleanse_risk ?? 0} />
+                <SignalGauge label="STRIP ROBUSTNESS" value={result.details.strip_risk ?? 0} />
+                <SignalGauge label="ACTIVATION CLUSTERING" value={result.details.clustering_risk ?? 0} />
+                <SignalGauge label="LINEAR WEIGHT AUDIT" value={result.details.weight_analysis_risk ?? 0} />
+                <SignalGauge label="NATURAL TROJAN PROFILER" value={result.details.natural_trojan_risk ?? 0} />
+                <SignalGauge label="GRADIENT SIMILARITY" value={result.details.gradient_similarity_risk ?? 0} />
+
+                {/* NC Verdict */}
+                <div style={{ marginTop: '1.5rem', padding: '1rem 1.25rem', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid var(--card-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <p className="label" style={{ fontSize: '0.6rem' }}>Neural Cleanse Verdict</p>
+                    <p style={{ fontSize: '0.9rem', fontWeight: 700, marginTop: '0.2rem', color: result.details.nc_flagged_classes.length > 0 ? 'var(--danger)' : 'var(--success)' }}>
+                      {result.details.nc_flagged_classes.length > 0 ? `Trigger Detected → Class ${result.details.nc_flagged_classes[0]}` : 'No Trigger Signatures Found'}
+                    </p>
+                  </div>
+                  <ShieldCheck size={22} color={result.details.nc_flagged_classes.length > 0 ? 'var(--danger)' : 'var(--success)'} style={{ opacity: 0.6 }} />
+                </div>
+              </div>
+            </div>
+
+            {/* ── GradCAM + Raw Telemetry row ── */}
+            <div className="grid-cols-2" style={{ marginBottom: '2.5rem' }}>
+              {/* GradCAM */}
+              <div className="card glass stagger-3" style={{ padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid var(--card-border)' }}>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.1rem', fontWeight: 800 }}>
+                    <Layout size={20} color="var(--accent)" />
+                    Mechanistic Interpretability (Grad-CAM)
                   </h3>
                 </div>
-
-                <div style={{ flex: 1, minHeight: '400px', padding: '2.5rem', position: 'relative' }}>
+                <div style={{ flex: 1, minHeight: '360px', padding: '2rem', position: 'relative' }}>
                   {result.gradcam_heatmap_b64 ? (
-                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-                      <div style={{ border: '1px solid var(--card-border)', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
-                        <img src={`data:image/png;base64,${result.gradcam_heatmap_b64}`} alt="Grad-CAM" style={{ width: '100%', display: 'block' }} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      <div style={{ border: '1px solid var(--card-border)', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
+                        <img src={`data:image/jpeg;base64,${result.gradcam_heatmap_b64}`} alt="Grad-CAM Heatmap" style={{ width: '100%', display: 'block' }} />
                       </div>
-                      <div className="card" style={{ background: 'rgba(0,0,0,0.3)', border: '1px dashed var(--card-border)', padding: '1.5rem' }}>
-                        <p style={{ fontSize: '0.85rem', color: '#94a3b8', lineHeight: 1.6 }}>
-                          <span style={{ color: '#fff', fontWeight: 600, display: 'block', marginBottom: '0.4rem' }}>Spatial Saliency Audit</span>
-                          Visual telemetry highlighting localized tensor activations. High-intensity convergence areas often correlate to pixel-space Trojan backdoors.
-                        </p>
-                      </div>
+                      <p style={{ fontSize: '0.82rem', color: '#94a3b8', lineHeight: 1.6 }}>
+                        <span style={{ color: '#fff', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>Spatial Saliency Audit</span>
+                        High-intensity convergence indicates pixel-space Trojan anchor regions.
+                      </p>
                     </div>
                   ) : (
-                    <div style={{ height: '100%', display: 'flex', flexWrap: 'wrap', content: 'center', opacity: 0.1 }}>
-                      <Activity size={100} />
+                    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.08 }}>
+                      <Activity size={90} />
                     </div>
                   )}
                 </div>
               </div>
+
+              {/* Raw Telemetry */}
+              <div className="card glass stagger-3">
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.1rem', fontWeight: 800, marginBottom: '1.8rem' }}>
+                  <GitBranch size={20} color="var(--accent)" />
+                  Raw Telemetry Values
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                  {[
+                    { label: 'STRIP False Rejection', value: result.details.strip_fr_ratio?.toFixed(4) },
+                    { label: 'STRIP False Acceptance', value: result.details.strip_fa_ratio?.toFixed(4) },
+                    { label: 'AC Silhouette Score', value: result.details.clustering_silhouette_score?.toFixed(4) },
+                    { label: 'Weight Anomaly Index', value: result.details.weight_analysis_risk?.toFixed(4) },
+                    { label: 'Gradient Similarity', value: result.details.gradient_similarity?.toFixed(4) },
+                    { label: 'Natural Shortcut Sensitivity', value: result.details.natural_sensitivity?.toFixed(4) },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="telemetry-row" style={{ marginBottom: '0.5rem' }}>
+                      <p className="label" style={{ fontSize: '0.6rem', marginBottom: '0.2rem' }}>{label}</p>
+                      <p style={{ fontSize: '1.1rem', fontWeight: 700 }}>{value ?? 'N/A'}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
+
 
             {/* NEW: Forensic Analysis Breakdown */}
             {result.details.forensic_analysis && result.details.forensic_analysis.length > 0 && (
