@@ -1,7 +1,8 @@
-import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
+from PIL import Image
+import matplotlib.cm as cm
 
 class GradCAM:
     """
@@ -85,8 +86,11 @@ class GradCAM:
             heatmap = np.abs(self.gradients.detach().cpu().numpy()[0])
             if len(heatmap.shape) > 1:
                 heatmap = np.mean(heatmap, axis=0)
-            # Re-shape to match input
-            heatmap = cv2.resize(heatmap, (input_tensor.shape[3], input_tensor.shape[2]))
+            
+            # Resize using PIL instead of cv2
+            img_pil = Image.fromarray(heatmap)
+            img_pil = img_pil.resize((input_tensor.shape[3], input_tensor.shape[2]), Image.Resampling.BILINEAR)
+            heatmap = np.array(img_pil)
         
         # Apply ReLU
         heatmap = np.maximum(heatmap, 0)
@@ -133,24 +137,26 @@ class GradCAM:
         self.hook_b.remove()
 
     @staticmethod
-    def overlay_heatmap(original_image, heatmap, alpha=0.5, colormap=cv2.COLORMAP_JET):
+    def overlay_heatmap(original_image, heatmap, alpha=0.5):
         """
         Overlays the generated heatmap onto the original image.
         original_image: numpy array (H, W, 3) in [0, 255] RGB format
         heatmap: numpy array (H, W) in [0, 1]
         """
-        # Ensure heatmap is a numpy array (in case it was passed as a tensor)
         if hasattr(heatmap, 'detach'):
             heatmap = heatmap.detach().cpu().numpy()
             
-        # Resize heatmap to match image dimensions
-        heatmap_resized = cv2.resize(heatmap, (original_image.shape[1], original_image.shape[0]))
+        # Resize heatmap using PIL
+        heatmap_pil = Image.fromarray(heatmap)
+        heatmap_pil = heatmap_pil.resize((original_image.shape[1], original_image.shape[0]), Image.Resampling.BILINEAR)
+        heatmap_resized = np.array(heatmap_pil)
         
-        # Convert heatmap to RGB 8-bit colormap
-        heatmap_colored = np.uint8(255 * heatmap_resized)
-        heatmap_colored = cv2.applyColorMap(heatmap_colored, colormap)
-        # Convert BGR (cv2 default) to RGB
-        heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
+        # Apply colormap using matplotlib instead of cv2
+        colormap = cm.get_cmap('jet')
+        heatmap_colored = colormap(heatmap_resized)
+        
+        # Drop alpha channel from colormap and convert to 0-255 RGB
+        heatmap_colored = np.uint8(255 * heatmap_colored[:, :, :3])
         
         # Superimpose the heatmap onto the original image
         superimposed_img = np.uint8(heatmap_colored * alpha + original_image * (1.0 - alpha))
