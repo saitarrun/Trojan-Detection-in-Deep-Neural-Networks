@@ -8,6 +8,7 @@ sample_external_models/
 *.log
 *.pth
 *.pt
+dump.rdb
 final_test_zoo/
 uploads/
 test_uploads/

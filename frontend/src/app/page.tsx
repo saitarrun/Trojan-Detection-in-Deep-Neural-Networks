@@ -98,8 +98,20 @@ export default function Dashboard() {
       }
 
       if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.detail || "Audit initiation failed.");
+        let errorMsg = "Audit initiation failed.";
+        try {
+          const contentType = response.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            const errData = await response.json();
+            errorMsg = errData.detail || errorMsg;
+          } else {
+            const textError = await response.text();
+            errorMsg = textError || `HTTP Error ${response.status}`;
+          }
+        } catch (e) {
+          errorMsg = `Server connectivity issue (${response.status})`;
+        }
+        throw new Error(errorMsg);
       }
 
       const data = await response.json();
