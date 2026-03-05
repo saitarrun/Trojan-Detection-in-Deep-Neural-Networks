@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 from tqdm import tqdm
+import torch.nn.functional as F
 
 class NeuralCleanse:
     def __init__(self, model, device, input_shape=(3, 32, 32), num_classes=10):
@@ -548,8 +549,94 @@ class NaturalTrojanProfiler:
         # High sensitivity to minor structural changes indicates a "Natural Trojan" (shortcut dependency)
         return avg_sensitivity
 
+
+class GradientSimilarity:
+    """
+    Gradient-Based Backdoor Detection (New Layer).
+    Trojaned models often show unusually high gradient alignment between
+    clean samples and artificially poisoned inputs; this divergence from
+    natural gradient variance strongly signals a backdoor trigger
+    (IARPA TrojAI Report Chapter 5.C – Gradient Forensics).
+    """
+    def __init__(self, model, device):
+        self.model = model
+        self.device = device
+        self.model.eval()
+
+    def compute_gradient(self, input_tensor, target_class):
+        """Compute the input-level gradient for a given target class."""
+        input_tensor = input_tensor.clone().detach().requires_grad_(True).to(self.device)
+        output = self.model(input_tensor)
+        loss = output[0, target_class]
+        self.model.zero_grad()
+        loss.backward()
+        grad = input_tensor.grad.detach().clone()
+        return grad
+
+    def detect(self, dataloader, target_class, num_samples=10, trigger_mask=None, trigger_pattern=None):
+        """
+        Measures the cosine similarity between gradients of clean samples and
+        simulated-poisoned samples. A high similarity score means the gradient
+        direction is very consistent across many inputs — a Trojan signature.
+        Returns a similarity score [0.0, 1.0]; high values indicate infection.
+        """
+        print(f"\n[GradientSimilarity] Analysing gradient alignment for class {target_class}...")
+        clean_grads = []
+        poisoned_grads = []
+
+        count = 0
+        for inputs, labels, *_ in dataloader:
+            if count >= num_samples:
+                break
+            for i in range(len(inputs)):
+                if count >= num_samples:
+                    break
+                img = inputs[i].unsqueeze(0).to(self.device)
+
+                # Gradient on clean image
+                cg = self.compute_gradient(img, target_class)
+                clean_grads.append(cg.view(-1))
+
+                # Gradient on poisoned image (use weak noise if no trigger available)
+                if trigger_mask is not None and trigger_pattern is not None:
+                    m = trigger_mask.to(self.device)
+                    p = trigger_pattern.to(self.device)
+                    poisoned = (1 - m) * img + m * p
+                else:
+                    poisoned = img + 0.05 * torch.randn_like(img)
+
+                pg = self.compute_gradient(poisoned, target_class)
+                poisoned_grads.append(pg.view(-1))
+                count += 1
+
+        if not clean_grads:
+            print("[GradientSimilarity] No samples found.")
+            return 0.0
+
+        # Compute pairwise cosine similarities
+        sims = []
+        for cg, pg in zip(clean_grads, poisoned_grads):
+            sim = F.cosine_similarity(cg.unsqueeze(0), pg.unsqueeze(0)).item()
+            sims.append(sim)
+
+        avg_sim = float(np.mean(sims))
+        print(f"   Average Gradient Cosine Similarity (clean vs poisoned): {avg_sim:.4f}")
+        print(f"   Interpretation: {'HIGH RISK — triggers locking gradient direction' if avg_sim > 0.85 else 'NORMAL — natural gradient variance observed'}")
+        return avg_sim
+
+
 class RiskFusionEngine:
-    def __init__(self, weights={'neural_cleanse': 0.20, 'strip': 0.25, 'clustering': 0.15, 'weight_analysis': 0.15, 'natural_profiler': 0.25}, use_meta_classifier=False):
+    def __init__(self, weights=None, use_meta_classifier=False):
+        # Rebalanced weights: gradient_similarity gets its own channel
+        if weights is None:
+            weights = {
+                'neural_cleanse': 0.20,
+                'strip': 0.20,
+                'clustering': 0.15,
+                'weight_analysis': 0.15,
+                'natural_profiler': 0.15,
+                'gradient_similarity': 0.15,
+            }
         self.weights = weights
         self.use_meta_classifier = use_meta_classifier
         self.meta_classifier = RiskMetaClassifier() if use_meta_classifier else None
@@ -609,59 +696,81 @@ class RiskFusionEngine:
         normalized = (max_idx - 1.8) / 3.2
         return min(max(normalized, 0.0), 1.0)
 
-    def calculate_unified_risk(self, nc_anomaly_indices, strip_fr_ratio, strip_fa_ratio, clustering_score, wa_anomaly_indices=None, natural_sensitivity=0.0):
+    def normalize_gradient_similarity(self, sim_score):
+        """
+        High cosine similarity (>0.85) between clean and poisoned gradients
+        strongly indicates the model has learned a trigger shortcut.
+        """
+        if sim_score < 0.70:
+            return 0.0
+        normalized = (sim_score - 0.70) / 0.30
+        return min(max(normalized, 0.0), 1.0)
+
+    def calculate_unified_risk(
+        self,
+        nc_anomaly_indices,
+        strip_fr_ratio,
+        strip_fa_ratio,
+        clustering_score,
+        wa_anomaly_indices=None,
+        natural_sensitivity=0.0,
+        gradient_similarity=0.0,
+    ):
         """
         Outputs a final probability score [0.0 - 1.0] of model infection.
+        Now includes GradientSimilarity as a 6th signal for better calibration.
         """
         nc_risk = self.normalize_neural_cleanse(nc_anomaly_indices)
         strip_risk = self.normalize_strip(strip_fr_ratio, strip_fa_ratio)
         clustering_risk = self.normalize_clustering(clustering_score)
         wa_risk = self.normalize_weight_analysis(wa_anomaly_indices) if wa_anomaly_indices is not None else 0.0
-        natural_risk = min(max(natural_sensitivity * 1.5, 0.0), 1.0) # Heuristic scaling
-        
+        natural_risk = min(max(natural_sensitivity * 1.5, 0.0), 1.0)
+        grad_risk = self.normalize_gradient_similarity(gradient_similarity)
+
         details = {
             'neural_cleanse_risk': nc_risk,
             'strip_risk': strip_risk,
             'clustering_risk': clustering_risk,
             'weight_analysis_risk': wa_risk,
-            'natural_trojan_risk': natural_risk
+            'natural_trojan_risk': natural_risk,
+            'gradient_similarity_risk': grad_risk,
         }
+
+        signal_risks = [
+            (nc_risk, self.weights['neural_cleanse']),
+            (strip_risk, self.weights['strip']),
+            (clustering_risk, self.weights['clustering']),
+            (wa_risk, self.weights['weight_analysis']),
+            (natural_risk, self.weights.get('natural_profiler', 0.15)),
+            (grad_risk, self.weights.get('gradient_similarity', 0.15)),
+        ]
 
         # Dynamic Fusion via Meta-Classifier
         if self.use_meta_classifier and self.meta_classifier and self.meta_classifier.is_trained:
-            # We now use the standard 5-feature vector: [NC, STRIP, AC, LWA, NTP]
             try:
-                features = np.array([[nc_risk, strip_risk, clustering_risk, wa_risk, natural_risk]])
+                features = np.array([[nc_risk, strip_risk, clustering_risk, wa_risk, natural_risk, grad_risk]])
                 final_risk = self.meta_classifier.predict_risk(features)
                 details['used_meta_classifier'] = True
             except Exception as e:
-                # Fallback if meta-clf expects 4 features (legacy support)
-                print(f"[RiskFusionEngine] Meta-Classifier prediction error (possible feature mismatch): {e}")
-                features = np.array([[nc_risk, strip_risk, clustering_risk, wa_risk]])
-                try:
-                    final_risk = self.meta_classifier.predict_risk(features)
-                    details['used_meta_classifier'] = "fallback_4_feature"
-                except:
-                    # Final fallback to weighted average
-                    final_risk = (
-                        nc_risk * self.weights['neural_cleanse'] +
-                        strip_risk * self.weights['strip'] +
-                        clustering_risk * self.weights['clustering'] +
-                        wa_risk * self.weights['weight_analysis'] +
-                        natural_risk * self.weights.get('natural_profiler', 0.25)
-                    )
-                    details['used_meta_classifier'] = "fallback_static"
+                print(f"[RiskFusionEngine] Meta-Classifier prediction error: {e}. Falling back.")
+                # Confidence-weighted fallback: signals with higher absolute values get more weight
+                active_signals = [(r, w) for r, w in signal_risks if r > 0]
+                if active_signals:
+                    total_weight = sum(w for _, w in active_signals)
+                    final_risk = sum(r * w for r, w in active_signals) / total_weight
+                else:
+                    final_risk = 0.0
+                details['used_meta_classifier'] = "fallback_confidence_weighted"
         else:
-            # Static Fallback
-            final_risk = (
-                nc_risk * self.weights['neural_cleanse'] +
-                strip_risk * self.weights['strip'] +
-                clustering_risk * self.weights['clustering'] +
-                wa_risk * self.weights['weight_analysis'] +
-                natural_risk * self.weights.get('natural_profiler', 0.25)
-            )
+            # Confidence-weighted fusion: only count signals that fired
+            active_signals = [(r, w) for r, w in signal_risks if r > 0]
+            if active_signals:
+                total_weight = sum(w for _, w in active_signals)
+                final_risk = sum(r * w for r, w in active_signals) / total_weight
+            else:
+                final_risk = 0.0
             details['used_meta_classifier'] = False
-        
+
         return final_risk, details
 class WeightAnalysis:
     """

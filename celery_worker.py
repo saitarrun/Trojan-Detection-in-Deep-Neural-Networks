@@ -8,7 +8,7 @@ import onnx
 from onnx2torch import convert
 
 # Import our MLSecOps components
-from defenses import NeuralCleanse, STRIP, ActivationClustering, WeightAnalysis, NaturalTrojanProfiler, RiskFusionEngine
+from defenses import NeuralCleanse, STRIP, ActivationClustering, WeightAnalysis, NaturalTrojanProfiler, GradientSimilarity, RiskFusionEngine
 from dataset import get_cifar10_dataloaders
 from trojai_dataset import get_trojai_dataloader
 from trojai_model_wrapper import TrojAI_ModelWrapper
@@ -190,7 +190,8 @@ def run_model_scan_task(self, model_path, target_class, trigger_type):
         'clustering_silhouette_score': 0.0,
         'wa_anomaly_indices': [],
         'weight_analysis_risk': 0.0,
-        'natural_sensitivity': 0.0
+        'natural_sensitivity': 0.0,
+        'gradient_similarity': 0.0,
     }
     
     # 3. Neural Cleanse (Run FIRST to Auto-Detect or Target)
@@ -290,9 +291,26 @@ def run_model_scan_task(self, model_path, target_class, trigger_type):
         print(f"Natural Trojan Profiling failed: {e}")
         details['natural_sensitivity'] = 0.0
 
-    # 8. Fusion Engine
-    self.update_state(state='PROGRESS', meta={'message': 'Fusing Risk Telemetry...'})
-    # Use Meta-Classifier if we have one trained, otherwise fallback to static
+    # 8. Gradient Similarity Analysis (New)
+    self.update_state(state='PROGRESS', meta={'message': 'Running Gradient Similarity Analysis...'})
+    nc_mask = masks[0] if 'masks' in dir() and masks else None
+    nc_pattern = None  # pattern not easily accessible but mask is enough for direction
+    try:
+        gs = GradientSimilarity(model, device)
+        # Re-use the test_clean loader with a small sample to keep speed acceptable
+        grad_sim = gs.detect(
+            test_clean,
+            target_class=target_class,
+            num_samples=8,
+            trigger_mask=nc_mask,
+        )
+        details['gradient_similarity'] = float(grad_sim)
+    except Exception as e:
+        print(f"Gradient Similarity failed: {e}")
+        details['gradient_similarity'] = 0.0
+
+    # 9. Fusion Engine
+    self.update_state(state='PROGRESS', meta={'message': 'Fusing Risk Telemetry (6-signal fusion)...'})
     engine = RiskFusionEngine(use_meta_classifier=True)
     fusion_score, fusion_details = engine.calculate_unified_risk(
         nc_anomaly_indices=details['nc_anomaly_indices'],
@@ -300,7 +318,8 @@ def run_model_scan_task(self, model_path, target_class, trigger_type):
         strip_fa_ratio=details['strip_fa_ratio'],
         clustering_score=details['clustering_silhouette_score'],
         wa_anomaly_indices=details['wa_anomaly_indices'],
-        natural_sensitivity=details['natural_sensitivity']
+        natural_sensitivity=details['natural_sensitivity'],
+        gradient_similarity=details['gradient_similarity'],
     )
     details.update(fusion_details)
 
