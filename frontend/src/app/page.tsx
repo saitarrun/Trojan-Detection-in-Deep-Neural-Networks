@@ -283,13 +283,13 @@ export default function Dashboard() {
       const forensicsBody = [];
       if (data.trojan_forensics) {
         const tf = data.trojan_forensics;
-        if (tf.trigger_inversion) forensicsBody.push(['Trigger Inversion (NC)', `Anomaly Index: ${tf.trigger_inversion.neural_cleanse_index.toFixed(2)}`]);
+        if (tf.trigger_inversion) forensicsBody.push(['Trigger Inversion (NC)', `Anomaly Index: ${tf.trigger_inversion.neural_cleanse_index?.toFixed(2) || 'N/A'}`]);
         if (tf.test_time_checks) {
-          forensicsBody.push(['STRIP False Acc.', `${(tf.test_time_checks.strip_false_acceptance * 100).toFixed(1)}%`]);
-          forensicsBody.push(['STRIP False Rej.', `${(tf.test_time_checks.strip_false_rejection * 100).toFixed(1)}%`]);
+          forensicsBody.push(['STRIP False Acc.', `${((tf.test_time_checks.strip_false_acceptance || 0) * 100).toFixed(1)}%`]);
+          forensicsBody.push(['STRIP False Rej.', `${((tf.test_time_checks.strip_false_rejection || 0) * 100).toFixed(1)}%`]);
         }
-        if (tf.weight_analysis) forensicsBody.push(['Weight Anomaly L2', `${tf.weight_analysis.max_anomaly_l2_norm.toFixed(2)}`]);
-        if (tf.natural_vulnerability_profiling) forensicsBody.push(['Shortcut Sensitivity', `${(tf.natural_vulnerability_profiling.shortcut_sensitivity * 100).toFixed(1)}%`]);
+        if (tf.weight_analysis) forensicsBody.push(['Weight Anomaly L2', `${tf.weight_analysis.max_anomaly_l2_norm?.toFixed(2) || 'N/A'}`]);
+        if (tf.natural_vulnerability_profiling) forensicsBody.push(['Shortcut Sensitivity', `${((tf.natural_vulnerability_profiling.shortcut_sensitivity || 0) * 100).toFixed(1)}%`]);
       }
 
       autoTable(doc, {
@@ -314,7 +314,16 @@ export default function Dashboard() {
         recY += textLines.length * 6;
       });
 
-      doc.save(`Gemini_Audit_${id.substring(0, 8)}.pdf`);
+      // Use explicit Blob download (bypasses some iframe/proxy blockers)
+      const pdfBlob = doc.output('blob');
+      const url = window.URL.createObjectURL(pdfBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Gemini_Audit_${id.substring(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
     } catch (err: any) {
       alert("Error generating PDF: " + err.message);
     }
