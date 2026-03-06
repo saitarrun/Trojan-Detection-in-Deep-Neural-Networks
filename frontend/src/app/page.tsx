@@ -413,9 +413,9 @@ export default function Dashboard() {
               >
                 <Upload size={28} style={{ color: 'var(--accent)', marginBottom: '0.75rem', opacity: 0.8 }} />
                 <p style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 500 }}>
-                  {selectedFile ? selectedFile.name : "Drop .pth or .onnx bundle"}
+                  {selectedFile ? selectedFile.name : "Drop .pt, .pth, or .onnx"}
                 </p>
-                <input id="file-upload" type="file" style={{ display: 'none' }} onChange={handleFileChange} accept=".pth,.onnx" />
+                <input id="file-upload" type="file" style={{ display: 'none' }} onChange={handleFileChange} accept=".pt,.pth,.onnx" />
               </div>
             )}
           </div>
