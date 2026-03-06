@@ -1,4 +1,9 @@
 import os
+import sys
+
+# Ensure the local directory is in the python path for unpickling bundled modules
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
 import torch
 from celery import Celery
 import time
