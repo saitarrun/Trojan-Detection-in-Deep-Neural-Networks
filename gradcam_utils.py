@@ -67,8 +67,7 @@ class GradCAM:
 
         # Get pooled gradients and activations
         if self.gradients is None or self.activations is None:
-            print("[GradCAM] Error: Backward pass failed to capture gradients/activations.")
-            return np.zeros((input_tensor.shape[2], input_tensor.shape[3])), img_np
+            raise RuntimeError("Backward pass failed to capture gradients/activations. This is expected for ONNX models or frozen layers.")
 
         # Handle different dimensions (Conv vs Linear)
         if len(self.gradients.shape) == 4:

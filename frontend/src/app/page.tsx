@@ -707,8 +707,12 @@ export default function Dashboard() {
                       </p>
                     </div>
                   ) : (
-                    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.08 }}>
-                      <Activity size={90} />
+                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                      <Activity size={90} style={{ opacity: 0.08, marginBottom: '1.5rem', color: 'var(--accent)' }} />
+                      <p style={{ color: '#94a3b8', fontSize: '0.9rem', textAlign: 'center', maxWidth: '80%' }}>
+                        Visual forensics are unavailable.
+                        <br /><span style={{ fontSize: '0.8rem', opacity: 0.7 }}>Grad-CAM requires PyTorch (.pt) models with differentiable Feature Layers. (ONNX models unsupported).</span>
+                      </p>
                     </div>
                   )}
                 </div>
