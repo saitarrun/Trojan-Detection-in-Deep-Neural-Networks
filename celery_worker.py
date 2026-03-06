@@ -135,24 +135,37 @@ def run_model_scan_task(self, model_path, target_class, trigger_type):
 
         raw_model = get_resnet18(num_classes=10)
         try:
-            # Re-running with weights_only=False if strictly required for older/custom pickled models
-            # In a production environment, we should prioritize weights_only=True for security.
+            # Attempt to load with the enhanced head
             state_dict = torch.load(model_path, map_location=device, weights_only=True)
             if isinstance(state_dict, dict) and "state_dict" in state_dict:
-                raw_model.load_state_dict(state_dict["state_dict"])
-            elif isinstance(state_dict, dict):
-                raw_model.load_state_dict(state_dict)
+                state_dict = state_dict["state_dict"]
+            
+            if isinstance(state_dict, dict):
+                try:
+                    raw_model.load_state_dict(state_dict)
+                except Exception as load_err:
+                    print(f"[{self.request.id}] Enhanced head load failed, falling back to standard ResNet18: {load_err}")
+                    # Fallback: Create a standard ResNet18 and try loading again
+                    from torchvision.models import resnet18 as torchvision_resnet18
+                    raw_model = torchvision_resnet18(weights=None)
+                    raw_model.fc = torch.nn.Linear(raw_model.fc.in_features, 10)
+                    raw_model.load_state_dict(state_dict)
             else:
-                raw_model = state_dict
+                raw_model = state_dict # Full model object
         except Exception as e:
             print(f"[{self.request.id}] Refined Loading with weights_only=False due to: {e}")
             try:
                 raw_model = torch.load(model_path, map_location=device, weights_only=False)
-                if hasattr(raw_model, 'state_dict') and not isinstance(raw_model, torch.nn.Module):
-                     # Handle cases where it's a dict but we expected a module
-                     pass
+                # If we loaded an OrderedDict instead of a model, we MUST instantiate a model and load it
+                if isinstance(raw_model, dict):
+                    print(f"[{self.request.id}] Loaded OrderedDict, attempting to map to standard ResNet18")
+                    from torchvision.models import resnet18 as torchvision_resnet18
+                    state_dict = raw_model
+                    raw_model = torchvision_resnet18(weights=None)
+                    raw_model.fc = torch.nn.Linear(raw_model.fc.in_features, 10)
+                    raw_model.load_state_dict(state_dict)
             except Exception as inner_e:
-                raise ValueError(f"Failed to unpickle model: {str(inner_e)}. This often happens if the file is corrupted or not a valid PyTorch model.")
+                raise ValueError(f"Failed to unpickle model: {str(inner_e)}. Ensure the file is a valid PyTorch model or state_dict.")
 
     # Wrap it to make it compatible with our defenses universally
     model = TrojAI_ModelWrapper(raw_model, device=device)
