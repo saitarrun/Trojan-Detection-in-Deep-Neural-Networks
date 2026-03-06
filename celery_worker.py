@@ -133,39 +133,58 @@ def run_model_scan_task(self, model_path, target_class, trigger_type):
         if not is_valid:
             raise ValueError(err_msg)
 
-        raw_model = get_resnet18(num_classes=10)
         try:
-            # Attempt to load with the enhanced head
             state_dict = torch.load(model_path, map_location=device, weights_only=True)
-            if isinstance(state_dict, dict) and "state_dict" in state_dict:
-                state_dict = state_dict["state_dict"]
-            
-            if isinstance(state_dict, dict):
-                try:
-                    raw_model.load_state_dict(state_dict)
-                except Exception as load_err:
-                    print(f"[{self.request.id}] Enhanced head load failed, falling back to standard ResNet18: {load_err}")
-                    # Fallback: Create a standard ResNet18 and try loading again
-                    from torchvision.models import resnet18 as torchvision_resnet18
-                    raw_model = torchvision_resnet18(weights=None)
-                    raw_model.fc = torch.nn.Linear(raw_model.fc.in_features, 10)
-                    raw_model.load_state_dict(state_dict)
-            else:
-                raw_model = state_dict # Full model object
         except Exception as e:
-            print(f"[{self.request.id}] Refined Loading with weights_only=False due to: {e}")
+            print(f"[{self.request.id}] Weights-only load failed, trying full load: {e}")
+            state_dict = torch.load(model_path, map_location=device, weights_only=False)
+
+        if isinstance(state_dict, dict) and "state_dict" in state_dict:
+            state_dict = state_dict["state_dict"]
+
+        if not isinstance(state_dict, dict):
+            raw_model = state_dict # Full model object
+        else:
+            # ── DYNAMIC ARCHITECTURE ADAPTATION ──
+            # Determine classification head type
+            num_classes = 10
+            if 'fc.8.weight' in state_dict:
+                num_classes = state_dict['fc.8.weight'].shape[0]
+                raw_model = get_resnet18(num_classes=num_classes)
+            elif 'fc.weight' in state_dict:
+                num_classes = state_dict['fc.weight'].shape[0]
+                from torchvision.models import resnet18 as torchvision_resnet18
+                raw_model = torchvision_resnet18(weights=None)
+                raw_model.fc = torch.nn.Linear(raw_model.fc.in_features, num_classes)
+            else:
+                # Default to our enhanced head as a guess
+                raw_model = get_resnet18(num_classes=10)
+
+            # Determine conv1/maxpool settings (CIFAR vs ImageNet)
+            if 'conv1.weight' in state_dict:
+                ckpt_conv_shape = state_dict['conv1.weight'].shape
+                if ckpt_conv_shape[2] == 3: # 3x3 kernel (CIFAR style)
+                    print(f"[{self.request.id}] Detected 3x3 conv1 kernel. Adapting architecture for small-input ResNet.")
+                    raw_model.conv1 = torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+                    raw_model.maxpool = torch.nn.Identity()
+                elif ckpt_conv_shape[2] == 7: # 7x7 kernel (Standard style)
+                    print(f"[{self.request.id}] Detected 7x7 conv1 kernel. Ensuring standard ResNet architecture.")
+                    # If raw_model was from get_resnet18 (which uses 3x3), revert it
+                    if isinstance(raw_model.conv1, torch.nn.Conv2d) and raw_model.conv1.kernel_size == (3, 3):
+                        raw_model.conv1 = torch.nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+                        from torchvision.models import resnet18 as torchvision_resnet18
+                        std_resnet = torchvision_resnet18(weights=None)
+                        raw_model.maxpool = std_resnet.maxpool
+
+            # Finally, load the state dict
             try:
-                raw_model = torch.load(model_path, map_location=device, weights_only=False)
-                # If we loaded an OrderedDict instead of a model, we MUST instantiate a model and load it
-                if isinstance(raw_model, dict):
-                    print(f"[{self.request.id}] Loaded OrderedDict, attempting to map to standard ResNet18")
-                    from torchvision.models import resnet18 as torchvision_resnet18
-                    state_dict = raw_model
-                    raw_model = torchvision_resnet18(weights=None)
-                    raw_model.fc = torch.nn.Linear(raw_model.fc.in_features, 10)
-                    raw_model.load_state_dict(state_dict)
-            except Exception as inner_e:
-                raise ValueError(f"Failed to unpickle model: {str(inner_e)}. Ensure the file is a valid PyTorch model or state_dict.")
+                raw_model.load_state_dict(state_dict)
+                print(f"[{self.request.id}] Flexible load SUCCESSFUL.")
+            except Exception as final_load_err:
+                # Last resort: Try strict=False if it's just minor naming issues
+                print(f"[{self.request.id}] Strict load failed: {final_load_err}. Retrying with strict=False...")
+                raw_model.load_state_dict(state_dict, strict=False)
+
 
     # Wrap it to make it compatible with our defenses universally
     model = TrojAI_ModelWrapper(raw_model, device=device)
