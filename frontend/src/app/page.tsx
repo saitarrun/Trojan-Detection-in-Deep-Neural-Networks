@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
   Shield,
   Zap,
@@ -242,17 +244,79 @@ export default function Dashboard() {
       const response = await fetch(`${API_BASE}/api/v1/audit-report/${id}`);
       if (!response.ok) throw new Error("Failed to generate report.");
       const data = await response.json();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Gemini_Audit_${id.substring(0, 8)}.json`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+
+      const doc = new jsPDF();
+
+      // Title
+      doc.setFontSize(22);
+      doc.setTextColor(40, 40, 40);
+      doc.text("IARPA TrojAI Security Audit Report", 14, 22);
+
+      // Metadata
+      doc.setFontSize(10);
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Task ID: ${data.report_metadata?.task_id || id}`, 14, 30);
+      doc.text(`Timestamp: ${data.report_metadata?.audit_timestamp || new Date().toISOString()}`, 14, 35);
+      doc.text(`Version: ${data.report_metadata?.version || '1.0'}`, 14, 40);
+
+      // Summary
+      doc.setFontSize(14);
+      doc.setTextColor(40, 40, 40);
+      doc.text("Model Summary", 14, 55);
+
+      autoTable(doc, {
+        startY: 60,
+        head: [['Metric', 'Value']],
+        body: [
+          ['Architecture', data.model_summary?.architecture || 'N/A'],
+          ['Framework', data.model_summary?.framework || 'N/A'],
+          ['Risk Fusion Score', `${((data.model_summary?.risk_fusion_score || 0) * 100).toFixed(1)}%`],
+          ['Verdict', data.model_summary?.verdict || 'N/A'],
+        ],
+        theme: 'striped',
+        headStyles: { fillColor: [41, 128, 185] },
+      });
+
+      // Forensics
+      doc.text("Trojan Forensics", 14, (doc as any).lastAutoTable.finalY + 15);
+
+      const forensicsBody = [];
+      if (data.trojan_forensics) {
+        const tf = data.trojan_forensics;
+        if (tf.trigger_inversion) forensicsBody.push(['Trigger Inversion (NC)', `Anomaly Index: ${tf.trigger_inversion.neural_cleanse_index.toFixed(2)}`]);
+        if (tf.test_time_checks) {
+          forensicsBody.push(['STRIP False Acc.', `${(tf.test_time_checks.strip_false_acceptance * 100).toFixed(1)}%`]);
+          forensicsBody.push(['STRIP False Rej.', `${(tf.test_time_checks.strip_false_rejection * 100).toFixed(1)}%`]);
+        }
+        if (tf.weight_analysis) forensicsBody.push(['Weight Anomaly L2', `${tf.weight_analysis.max_anomaly_l2_norm.toFixed(2)}`]);
+        if (tf.natural_vulnerability_profiling) forensicsBody.push(['Shortcut Sensitivity', `${(tf.natural_vulnerability_profiling.shortcut_sensitivity * 100).toFixed(1)}%`]);
+      }
+
+      autoTable(doc, {
+        startY: (doc as any).lastAutoTable.finalY + 20,
+        head: [['Analysis Vector', 'Result']],
+        body: forensicsBody.length > 0 ? forensicsBody : [['No Forensics Data', '--']],
+        theme: 'striped',
+        headStyles: { fillColor: [41, 128, 185] },
+      });
+
+      // Recommendations
+      const lastY = (doc as any).lastAutoTable.finalY;
+      doc.text("Strategic Recommendations", 14, lastY + 15);
+      doc.setFontSize(10);
+      doc.setTextColor(60, 60, 60);
+
+      let recY = lastY + 22;
+      const recs = data.strategic_recommendations || [];
+      recs.forEach((rec: string) => {
+        const textLines = doc.splitTextToSize(`• ${rec}`, 180);
+        doc.text(textLines, 14, recY);
+        recY += textLines.length * 6;
+      });
+
+      doc.save(`Gemini_Audit_${id.substring(0, 8)}.pdf`);
     } catch (err: any) {
-      alert("Error: " + err.message);
+      alert("Error generating PDF: " + err.message);
     }
   };
 
