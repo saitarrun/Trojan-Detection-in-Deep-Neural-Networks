@@ -137,7 +137,10 @@ def run_model_scan_task(self, model_path, target_class, trigger_type):
             state_dict = torch.load(model_path, map_location=device, weights_only=True)
         except Exception as e:
             print(f"[{self.request.id}] Weights-only load failed, trying full load: {e}")
-            state_dict = torch.load(model_path, map_location=device, weights_only=False)
+            try:
+                state_dict = torch.load(model_path, map_location=device, weights_only=False)
+            except Exception as full_err:
+                raise ValueError(f"Model Load Failure: The uploaded file requires custom Python classes that are not present in this environment (e.g., '{full_err}'). Please ensure you upload standard architectural checkpoints.")
 
         if isinstance(state_dict, dict) and "state_dict" in state_dict:
             state_dict = state_dict["state_dict"]

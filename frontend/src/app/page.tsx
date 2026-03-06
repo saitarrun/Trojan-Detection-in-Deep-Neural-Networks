@@ -224,7 +224,7 @@ export default function Dashboard() {
           setProgress(100);
           clearInterval(interval);
         } else if (data.status === 'FAILURE') {
-          setError(data.message || "Audit failed.");
+          setError(data.error || data.message || "Audit failed.");
           setIsScanning(false);
           setTaskId(null);
           clearInterval(interval);
