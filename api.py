@@ -146,7 +146,10 @@ def get_scan_status(task_id: str):
         response["message"] = task_result.info.get('message', 'Processing...')
     elif task_result.status == 'SUCCESS':
         response["message"] = "Scan Complete"
-        response["result"] = task_result.result # Contains fusion_score, details, base64 image
+        res = task_result.result
+        if isinstance(res, dict):
+            res['task_id'] = task_id
+        response["result"] = res # Contains fusion_score, details, base64 image, and now task_id
     elif task_result.status == 'FAILURE':
         response["message"] = "Task failed to complete"
         response["error"] = str(task_result.info)

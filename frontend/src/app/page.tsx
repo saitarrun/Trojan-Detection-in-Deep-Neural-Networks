@@ -216,7 +216,7 @@ export default function Dashboard() {
         if (data.status === 'PROGRESS') {
           setProgress((prev) => Math.min(prev + 5, 90));
         } else if (data.status === 'SUCCESS') {
-          setResult(data.result);
+          setResult({ ...data.result, task_id: taskId });
           setIsScanning(false);
           setTaskId(null);
           setProgress(100);
