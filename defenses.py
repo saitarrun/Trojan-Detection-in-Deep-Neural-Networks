@@ -341,7 +341,44 @@ class ActivationClustering:
             
         print(f"Silhouette Score (Separation Metric): {score:.4f}")
         
-        return score, cluster_labels, features_np
+        # --- Generate t-SNE Plot base64 ---
+        tsne_plot_b64 = None
+        try:
+            from sklearn.manifold import TSNE
+            import matplotlib.pyplot as plt
+            import io
+            import base64
+            import matplotlib
+            matplotlib.use('Agg') # Headless backend
+            
+            perplexity = min(30, max(5, len(features_np) - 1))
+            tsne = TSNE(n_components=2, random_state=42, perplexity=perplexity)
+            features_2d = tsne.fit_transform(features_np)
+            
+            fig, ax = plt.subplots(figsize=(6, 4))
+            
+            # Use distinct visually appealing colors
+            if len(np.unique(cluster_labels)) == 1:
+                ax.scatter(features_2d[:, 0], features_2d[:, 1], c='#3b82f6', alpha=0.7, edgecolors='w', s=45)
+            else:
+                colors = np.where(cluster_labels == 1, '#ef4444', '#10b981') # Red for poison cluster, green for natural
+                ax.scatter(features_2d[:, 0], features_2d[:, 1], c=colors, alpha=0.7, edgecolors='w', s=45)
+            
+            ax.set_title("t-SNE Latent Space Projection", color='#334155', fontsize=11, fontweight='bold', pad=15)
+            ax.axis('off')
+            fig.patch.set_alpha(0.0) # Transparent background
+            ax.patch.set_alpha(0.0)
+            
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', bbox_inches='tight', dpi=150, transparent=True)
+            plt.close(fig)
+            
+            buf.seek(0)
+            tsne_plot_b64 = base64.b64encode(buf.read()).decode('utf-8')
+        except Exception as e:
+            print(f"t-SNE visualization failed: {e}")
+            
+        return score, cluster_labels, features_np, tsne_plot_b64
 
     def remove_hook(self):
         if self.hook is not None:

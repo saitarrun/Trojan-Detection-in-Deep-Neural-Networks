@@ -18,6 +18,7 @@ from dataset import get_cifar10_dataloaders
 from trojai_dataset import get_trojai_dataloader
 from trojai_model_wrapper import TrojAI_ModelWrapper
 from gradcam_utils import GradCAM
+from captum_utils import CaptumSaliency
 from models import get_resnet18
 import datetime
 
@@ -299,15 +300,17 @@ def run_model_scan_task(self, model_path, target_class, trigger_type):
         details['strip_fa_ratio'] = 0.0
         
     # 5. Activation Clustering
-    self.update_state(state='PROGRESS', meta={'message': 'Running Activation Clustering...'})
+    self.update_state(state='PROGRESS', meta={'message': 'Running Activation Clustering & t-SNE...'})
     try:
         ac = ActivationClustering(model, device, feature_layer_name=model.feature_layer_name)
-        score_ac, _, _ = ac.detect(train_loader, target_class=target_class, method='kmeans')
+        score_ac, _, _, tsne_b64 = ac.detect(train_loader, target_class=target_class, method='kmeans')
         details['clustering_silhouette_score'] = float(score_ac)
+        details['tsne_plot_b64'] = tsne_b64
         ac.remove_hook()
     except Exception as e:
         print(f"Activation Clustering failed: {e}")
         details['clustering_silhouette_score'] = 0.0
+        details['tsne_plot_b64'] = None
 
     # 6. Weight Analysis (Chapter 4)
     self.update_state(state='PROGRESS', meta={'message': 'Running Linear Weight Analysis...'})
@@ -418,24 +421,43 @@ def run_model_scan_task(self, model_path, target_class, trigger_type):
 
     details['forensic_analysis'] = forensic_analysis
     
-    # 8. Grad-CAM Mechanics
+    # 8. Grad-CAM Mechanics & Captum Explainability
     self.update_state(state='PROGRESS', meta={'message': 'Generating Visual Forensics...'})
     try:
-        grad_cam = GradCAM(model, device=device, target_layer_name=model.feature_layer_name)
         sample_img, _ = test_clean.dataset[0] # Grab first image
         sample_img = sample_img.unsqueeze(0).to(device)
-        heatmap, overlay = grad_cam.generate_heatmap(sample_img, target_class=target_class)
-        grid_image = grad_cam.visualize(sample_img, heatmap, overlay)
-        b64_img = grad_cam.to_base64_jpeg(grid_image)
-        grad_cam.remove_hooks()
+        
+        # 1. Grad-CAM
+        try:
+            grad_cam = GradCAM(model, device=device, target_layer_name=model.feature_layer_name)
+            heatmap, overlay = grad_cam.generate_heatmap(sample_img, target_class=target_class)
+            grid_image = grad_cam.visualize(sample_img, heatmap, overlay)
+            b64_img = grad_cam.to_base64_jpeg(grid_image)
+            grad_cam.remove_hooks()
+        except Exception as e:
+            print(f"Grad-CAM failed: {e}")
+            b64_img = None
+            
+        # 2. Captum Integrated Gradients
+        try:
+            captum = CaptumSaliency(model, device)
+            attribution_map = captum.generate_attribution(sample_img, target_class=target_class)
+            captum_combined = captum.visualize(sample_img, attribution_map)
+            captum_b64 = captum.to_base64_jpeg(captum_combined)
+        except Exception as e:
+            print(f"Captum failed: {e}")
+            captum_b64 = None
+            
     except Exception as e:
-        print(f"Grad-CAM failed: {e}")
+        print(f"Visual forensics outer failed: {e}")
         b64_img = None
+        captum_b64 = None
 
     # Return serializable dict
     return {
         "fusion_risk_score": fusion_score,
         "details": details,
         "gradcam_heatmap_b64": b64_img,
+        "captum_heatmap_b64": captum_b64,
         "is_onnx": is_onnx
     }

@@ -692,17 +692,23 @@ export default function Dashboard() {
                 <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid var(--card-border)' }}>
                   <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.1rem', fontWeight: 800 }}>
                     <Layout size={20} color="var(--accent)" />
-                    Mechanistic Interpretability (Grad-CAM)
+                    Mechanistic Interpretability
                   </h3>
                 </div>
                 <div style={{ flex: 1, minHeight: '360px', padding: '2rem', position: 'relative' }}>
-                  {result.gradcam_heatmap_b64 ? (
+                  {result.captum_heatmap_b64 || result.gradcam_heatmap_b64 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                       <div style={{ border: '1px solid var(--card-border)', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
-                        <img src={`data:image/jpeg;base64,${result.gradcam_heatmap_b64}`} alt="Grad-CAM Heatmap" style={{ width: '100%', display: 'block' }} />
+                        {result.captum_heatmap_b64 ? (
+                          <img src={`data:image/jpeg;base64,${result.captum_heatmap_b64}`} alt="Captum Integrated Gradients" style={{ width: '100%', display: 'block' }} />
+                        ) : (
+                          <img src={`data:image/jpeg;base64,${result.gradcam_heatmap_b64}`} alt="Grad-CAM Heatmap" style={{ width: '100%', display: 'block' }} />
+                        )}
                       </div>
                       <p style={{ fontSize: '0.82rem', color: '#94a3b8', lineHeight: 1.6 }}>
-                        <span style={{ color: '#fff', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>Spatial Saliency Audit</span>
+                        <span style={{ color: '#fff', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                          {result.captum_heatmap_b64 ? 'Integrated Gradients (Captum)' : 'Spatial Saliency (Grad-CAM)'}
+                        </span>
                         High-intensity convergence indicates pixel-space Trojan anchor regions.
                       </p>
                     </div>
@@ -711,7 +717,7 @@ export default function Dashboard() {
                       <Activity size={90} style={{ opacity: 0.08, marginBottom: '1.5rem', color: 'var(--accent)' }} />
                       <p style={{ color: '#94a3b8', fontSize: '0.9rem', textAlign: 'center', maxWidth: '80%' }}>
                         Visual forensics are unavailable.
-                        <br /><span style={{ fontSize: '0.8rem', opacity: 0.7 }}>Grad-CAM requires PyTorch (.pt) models with differentiable Feature Layers. (ONNX models unsupported).</span>
+                        <br /><span style={{ fontSize: '0.8rem', opacity: 0.7 }}>Mechanistic interpretability hooks failed on this architecture layer.</span>
                       </p>
                     </div>
                   )}
@@ -742,6 +748,31 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* NEW: t-SNE Activation Space */}
+            {result.details.tsne_plot_b64 && (
+              <div className="card glass stagger-3" style={{ marginBottom: '2.5rem', padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid var(--card-border)' }}>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '1.1rem', fontWeight: 800 }}>
+                    <Layout size={20} color="var(--accent)" />
+                    Activation Space (t-SNE Dimensionality Reduction)
+                  </h3>
+                </div>
+                <div style={{ display: 'flex', gap: '2rem', padding: '2rem', alignItems: 'center' }}>
+                  <div style={{ flex: 1 }}>
+                    <p style={{ fontSize: '0.9rem', color: '#94a3b8', lineHeight: 1.6, marginBottom: '1rem' }}>
+                      This diagnostic projection maps the high-dimensional latent activations into a 2D plot.
+                      Distinct color-coded clustering visually confirms the presence of isolated feature distributions triggered by poisoned inputs.
+                    </p>
+                    <p style={{ fontSize: '1rem', fontWeight: 700, color: result.details.clustering_silhouette_score > 0.1 ? 'var(--danger)' : 'var(--success)' }}>
+                      Silhouette Score: {result.details.clustering_silhouette_score?.toFixed(4)}
+                    </p>
+                  </div>
+                  <div style={{ flex: 1.5, border: '1px solid var(--card-border)', borderRadius: '14px', overflow: 'hidden', background: '#e2e8f0', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                    <img src={`data:image/png;base64,${result.details.tsne_plot_b64}`} alt="t-SNE Latent Space Plot" style={{ width: '80%', display: 'block', mixBlendMode: 'multiply' }} />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* NEW: Forensic Analysis Breakdown */}
             {result.details.forensic_analysis && result.details.forensic_analysis.length > 0 && (
