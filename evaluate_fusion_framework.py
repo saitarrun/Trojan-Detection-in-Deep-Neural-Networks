@@ -32,7 +32,7 @@ def run_benchmarks(model_dir="models", output_csv="fusion_benchmark_results.csv"
         
         # Load Model
         model = get_resnet18(num_classes=10)
-        model.load_state_dict(torch.load(model_path, map_location=device))
+        model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
         model.to(device)
         model.eval()
         
