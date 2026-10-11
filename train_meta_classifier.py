@@ -53,7 +53,9 @@ def generate_training_data(model_dir="models", output_file="meta_training_data.n
                 from celery_worker import ONNXModelWrapper
                 raw_model = ONNXModelWrapper(model_path)
             else:
-                state_dict = torch.load(model_path, map_location=device, weights_only=False)
+                # Deliberate: models here are the project's own locally-generated analysis subjects
+                # (state dicts or full nn.Module objects), so weights_only=True cannot be assumed.
+                state_dict = torch.load(model_path, map_location=device, weights_only=False)  # nosec B614
                 
                 if isinstance(state_dict, dict) and "state_dict" in state_dict:
                     state_dict = state_dict["state_dict"]
