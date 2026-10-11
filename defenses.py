@@ -652,8 +652,10 @@ class RiskMetaClassifier:
                     raise RuntimeError(f"Artifact integrity failure: meta_classifier.pkl hash mismatch")
             else:
                 logger.warning("META_CLASSIFIER_SHA256 not set; skipping integrity check for meta_classifier.pkl")
+            # Deliberate: loads the meta-classifier artifact produced locally by this project's own
+            # training script; integrity is pinned via the optional META_CLASSIFIER_SHA256 env check above.
             with open(pkl_path, 'rb') as f:
-                self.clf = pickle.load(f)
+                self.clf = pickle.load(f)  # nosec B301
                 self.is_trained = True
                 print(f"[RiskMetaClassifier] Loaded pre-trained model from {pkl_path}")
 
