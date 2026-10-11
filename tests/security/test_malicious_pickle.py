@@ -14,10 +14,15 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 
+# Marker path a malicious payload would try to create. Derived from the OS temp dir
+# (never hardcoded) so the test stays meaningful on any platform.
+PWNED_MARKER = os.path.join(tempfile.gettempdir(), "trojai_security_test_pwned")
+
+
 class MaliciousPayload:
     """A pickle payload that would execute os.system if unpickled unsafely."""
     def __reduce__(self):
-        return (os.system, ("echo MALICIOUS_CODE_EXECUTED > /tmp/pwned",))
+        return (os.system, (f"echo MALICIOUS_CODE_EXECUTED > {PWNED_MARKER}",))
 
 
 def make_malicious_pickle() -> bytes:
@@ -31,7 +36,7 @@ def test_restricted_unpickler_blocks_os_system():
     with pytest.raises(pickle.UnpicklingError):
         RestrictedUnpickler(io.BytesIO(malicious_bytes)).load()
     # Verify file was NOT created (payload did not execute)
-    assert not os.path.exists("/tmp/pwned"), "Malicious payload executed — CRITICAL SECURITY FAILURE"
+    assert not os.path.exists(PWNED_MARKER), "Malicious payload executed — CRITICAL SECURITY FAILURE"
 
 
 def test_restricted_unpickler_blocks_subprocess():
@@ -57,7 +62,7 @@ def test_safe_torch_load_rejects_malicious_file():
             safe_torch_load(tmp_path)
     finally:
         os.unlink(tmp_path)
-        assert not os.path.exists("/tmp/pwned"), "Malicious payload executed during safe_torch_load"
+        assert not os.path.exists(PWNED_MARKER), "Malicious payload executed during safe_torch_load"
 
 
 def test_audit_ledger_immutability():
