@@ -5,6 +5,7 @@ Produces the same 10-dimensional feature vector as the full pipeline.
 """
 import os
 import sys
+import tempfile
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 import torch
@@ -29,7 +30,9 @@ def _limit_loader(loader, max_samples):
 
 def load_model(model_path, device):
     """Dynamic architecture adaptation (mirrors celery_worker.py)."""
-    state_dict = torch.load(model_path, map_location=device, weights_only=False)
+    # Deliberate: loads the project's own locally-generated analysis checkpoints, which may be
+    # full nn.Module objects (not just state dicts), so weights_only=True cannot deserialize them.
+    state_dict = torch.load(model_path, map_location=device, weights_only=False)  # nosec B614
 
     if isinstance(state_dict, dict) and "state_dict" in state_dict:
         state_dict = state_dict["state_dict"]
@@ -224,8 +227,8 @@ def main():
     print(f"Feature matrix shape: {X.shape}")
     print(f"{'='*60}")
 
-    # Use /tmp for Docker read-only filesystem compatibility
-    out_dir = "/tmp" if not os.access(".", os.W_OK) else "."
+    # Use the OS temp dir (not a hardcoded path) for Docker read-only filesystem compatibility
+    out_dir = tempfile.gettempdir() if not os.access(".", os.W_OK) else "."
     npz_path = os.path.join(out_dir, "meta_training_data.npz")
     pkl_path = os.path.join(out_dir, "meta_classifier.pkl")
 
