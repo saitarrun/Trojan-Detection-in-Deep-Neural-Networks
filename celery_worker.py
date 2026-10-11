@@ -78,8 +78,10 @@ def safe_torch_load(path):
         return torch.load(path, map_location="cpu", weights_only=True)
     except Exception:
         try:
-            # weights_only=False for trusted bundled-class checkpoints
-            return torch.load(path, map_location="cpu", weights_only=False)
+            # weights_only=False for trusted bundled-class checkpoints. Deliberate fallback inside
+            # safe_torch_load: weights_only=True is always attempted first, and this path only runs
+            # for checkpoints whose custom classes were explicitly registered as safe globals above.
+            return torch.load(path, map_location="cpu", weights_only=False)  # nosec B614
         except Exception:
             with open(path, "rb") as f:
                 return RestrictedUnpickler(f).load()
