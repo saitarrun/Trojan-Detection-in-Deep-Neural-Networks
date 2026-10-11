@@ -294,4 +294,5 @@ def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Deliberate: binding all interfaces is required for containerized/VM deployments of this API.
+    uvicorn.run(app, host="0.0.0.0", port=8000)  # nosec B104
