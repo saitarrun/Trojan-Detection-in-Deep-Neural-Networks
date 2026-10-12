@@ -61,7 +61,9 @@ jobs:
         run: npm ci
 
       - name: npm audit
-        run: npm audit --audit-level=high
+        # Audit gate allows documented risk exceptions for advisories with no
+        # upstream patch (see frontend/scripts/audit-gate.mjs).
+        run: node scripts/audit-gate.mjs
 
       - name: Build check
         run: npm run build
