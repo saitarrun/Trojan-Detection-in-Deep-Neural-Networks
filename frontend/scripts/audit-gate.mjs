@@ -7,7 +7,9 @@
 //   Remove from this list once a fixed braces version is published.
 import { execSync } from "node:child_process";
 
-const KNOWN_RISK_EXCEPTIONS = new Set(["GHSA-vfj7-8cjw-p6xm"]);
+const KNOWN_RISK_EXCEPTIONS = new Set(
+  ["GHSA-vfj7-8cjw-p6xm"].map((g) => g.toUpperCase())
+);
 
 let audit;
 try {
@@ -24,19 +26,41 @@ try {
   audit = JSON.parse(stdout);
 }
 
-const failures = [];
-for (const [name, v] of Object.entries(audit.vulnerabilities || {})) {
-  if (v.severity !== "high" && v.severity !== "critical") continue;
-  const urls = [];
+const vulns = audit.vulnerabilities || {};
+
+// Collect every GHSA advisory an entry transitively involves. npm lists each
+// package in a vulnerable dependency chain as its own entry; only the root
+// entry carries the advisory URL, the rest reference it by package name via
+// `via`, so we resolve the chain.
+function advisoryIds(name, seen = new Set()) {
+  if (seen.has(name)) return new Set();
+  seen.add(name);
+  const v = vulns[name];
+  if (!v) return new Set();
+  const ids = new Set();
   for (const via of v.via || []) {
-    if (via && typeof via === "object" && via.url) urls.push(via.url);
+    if (via && typeof via === "object" && via.url) {
+      const m = via.url.match(/GHSA-[a-z0-9-]+/i);
+      if (m) ids.add(m[0].toUpperCase());
+    } else if (typeof via === "string" && vulns[via]) {
+      for (const id of advisoryIds(via, seen)) ids.add(id);
+    }
   }
-  // Fail closed: a finding is only excepted when every linked advisory is
-  // on the known-risk list.
+  return ids;
+}
+
+const failures = [];
+for (const name of Object.keys(vulns)) {
+  const v = vulns[name];
+  if (v.severity !== "high" && v.severity !== "critical") continue;
+  const ids = advisoryIds(name);
+  // Fail closed: except only when the finding involves at least one advisory
+  // and every involved advisory is on the known-risk list.
   const excepted =
-    urls.length > 0 &&
-    urls.every((u) => [...KNOWN_RISK_EXCEPTIONS].some((g) => u.includes(g)));
-  if (!excepted) failures.push(`${name}@${v.range} [${v.severity}] ${urls[0] || ""}`);
+    ids.size > 0 && [...ids].every((id) => KNOWN_RISK_EXCEPTIONS.has(id));
+  if (!excepted) {
+    failures.push(`${name}@${v.range} [${v.severity}] ${[...ids].join(", ")}`);
+  }
 }
 
 if (failures.length > 0) {
