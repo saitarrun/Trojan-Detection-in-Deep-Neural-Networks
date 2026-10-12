@@ -3,7 +3,7 @@
 amqp==5.3.1
 annotated-doc==0.0.4
 annotated-types==0.7.0
-anyio==4.12.1
+anyio==4.15.1
 attrs==25.4.0
 blinker==1.9.0
 cachetools==6.2.6
@@ -20,11 +20,11 @@ fastapi==0.134.0
 filelock==3.24.3
 flatbuffers==25.12.19
 fonttools==4.61.1
-fsspec==2026.2.0
+fsspec==2026.9.0
 gitdb==4.0.12
-GitPython==3.1.46
+GitPython==3.2.0
 h11==0.16.0
-idna==3.11
+idna==3.20
 Jinja2==3.1.6
 joblib==1.5.3
 jsonschema==4.26.0
@@ -36,7 +36,7 @@ ml_dtypes==0.5.4
 narwhals==2.17.0
 networkx==3.6.1
 numpy==2.4.2
-onnx==1.20.1
+onnx==1.23.2
 onnx-ir==0.2.0
 onnx2torch==1.5.15
 onnxruntime==1.24.2
@@ -44,7 +44,7 @@ onnxscript==0.6.2
 opencv-python-headless==4.10.0.84
 packaging==26.0
 pandas==2.3.3
-pillow==12.1.1
+pillow==12.3.0
 prompt_toolkit==3.0.52
 protobuf==6.33.5
 pyarrow==23.0.1
@@ -53,34 +53,34 @@ pydantic_core==2.41.5
 
 pyparsing==3.3.2
 python-dateutil==2.9.0.post0
-python-multipart==0.0.22
+python-multipart==0.0.32
 pytz==2025.2
 redis==7.2.1
 slowapi==0.1.9
 referencing==0.37.0
-requests==2.32.5
+requests==2.34.2
 rpds-py==0.30.0
 scikit-learn==1.8.0
 scipy==1.17.1
-setuptools==82.0.0
+setuptools==84.0.0
 six==1.17.0
 smmap==5.0.2
-starlette==0.52.1
+starlette==1.7.0
 
 sympy==1.14.0
 tabulate==0.9.0
 tenacity==9.1.4
 threadpoolctl==3.6.0
 toml==0.10.2
-torch==2.10.0
-torchvision==0.25.0
+torch==2.14.1
+torchvision==0.29.1
 
 tqdm==4.67.3
 typing-inspection==0.4.2
-typing_extensions==4.15.0
+typing_extensions==4.16.0
 tzdata==2025.3
 tzlocal==5.3.1
-urllib3==2.6.3
+urllib3==2.8.0
 uvicorn==0.41.0
 vine==5.1.0
 wcwidth==0.6.0
